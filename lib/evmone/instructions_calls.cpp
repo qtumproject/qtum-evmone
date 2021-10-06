@@ -125,8 +125,10 @@ evmc_status_code create(ExecutionState& state) noexcept
             return EVMC_OUT_OF_GAS;
     }
 
-    if (endowment)
+#ifdef QTUM_BUILD
+    if (endowment != 0)
         return EVMC_CREATE_WITH_VALUE;
+#endif
 
     state.stack.push(0);
     state.return_data.clear();
