@@ -11,6 +11,10 @@
 #include <evmone/evmone.h>
 #include <iostream>
 
+#ifdef QTUM_BUILD
+#define PROJECT_VERSION "0.8.1"
+#endif
+
 namespace evmone
 {
 namespace
