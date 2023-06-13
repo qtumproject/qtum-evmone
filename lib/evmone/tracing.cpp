@@ -18,6 +18,14 @@ std::string get_name(uint8_t opcode)
     const auto name = instr::traits[opcode].name;
     return (name != nullptr) ? name : "0x" + evmc::hex(opcode);
 }
+std::string hex(bytes bs)
+{
+    std::string str;
+    str.reserve(bs.size() * 2);
+    for (const auto b : bs)
+        str += evmc::hex(b);
+    return str;
+}
 
 /// @see create_histogram_tracer()
 class HistogramTracer : public Tracer
@@ -137,7 +145,7 @@ class InstructionTracer : public Tracer
             m_out << '"' << result.status_code << '"';
         m_out << R"(,"gas":)" << std::hex << "0x" << result.gas_left;
         m_out << R"(,"gasUsed":)" << std::hex << "0x" << (ctx.start_gas - result.gas_left);
-        m_out << R"(,"output":")" << evmc::hex({result.output_data, result.output_size}) << '"';
+        m_out << R"(,"output":")" << evmone::hex({result.output_data, result.output_size}) << '"';
         m_out << "}\n";
 
         m_contexts.pop();

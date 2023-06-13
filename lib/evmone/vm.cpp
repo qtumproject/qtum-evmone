@@ -12,6 +12,10 @@
 #include <cassert>
 #include <iostream>
 
+#ifdef QTUM_BUILD
+#define PROJECT_VERSION "0.10.0"
+#endif
+
 namespace evmone
 {
 namespace
