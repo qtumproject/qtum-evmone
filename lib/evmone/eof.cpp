@@ -11,7 +11,6 @@
 #include <cassert>
 #include <limits>
 #include <numeric>
-#include <span>
 #include <stack>
 #include <variant>
 #include <vector>
