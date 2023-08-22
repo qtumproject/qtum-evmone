@@ -4,6 +4,7 @@
 
 #include <evmc/evmc.hpp>
 #include <evmone/evmone.h>
+#include <evmone/vm.hpp>
 #include <gtest/gtest.h>
 
 TEST(evmone, info)
@@ -31,16 +32,24 @@ TEST(evmone, set_option_invalid)
     vm->destroy(vm);
 }
 
-TEST(evmone, set_option_optimization_level)
+TEST(evmone, set_option_advanced)
 {
     auto vm = evmc::VM{evmc_create_evmone()};
-    EXPECT_EQ(vm.set_option("O", ""), EVMC_SET_OPTION_INVALID_VALUE);
-    EXPECT_EQ(vm.set_option("O", "0"), EVMC_SET_OPTION_SUCCESS);
-    EXPECT_EQ(vm.set_option("O", "1"), EVMC_SET_OPTION_INVALID_VALUE);
-    EXPECT_EQ(vm.set_option("O", "2"), EVMC_SET_OPTION_SUCCESS);
-    EXPECT_EQ(vm.set_option("O", "3"), EVMC_SET_OPTION_INVALID_VALUE);
+    EXPECT_EQ(vm.set_option("advanced", ""), EVMC_SET_OPTION_SUCCESS);
 
-    EXPECT_EQ(vm.set_option("O", "20"), EVMC_SET_OPTION_INVALID_VALUE);
-    EXPECT_EQ(vm.set_option("O", "21"), EVMC_SET_OPTION_INVALID_VALUE);
-    EXPECT_EQ(vm.set_option("O", "22"), EVMC_SET_OPTION_INVALID_VALUE);
+    // This will also enable Advanced.
+    EXPECT_EQ(vm.set_option("advanced", "no"), EVMC_SET_OPTION_SUCCESS);
+}
+
+TEST(evmone, set_option_cgoto)
+{
+    evmc::VM vm{evmc_create_evmone()};
+
+#if EVMONE_CGOTO_SUPPORTED
+    EXPECT_EQ(vm.set_option("cgoto", ""), EVMC_SET_OPTION_INVALID_VALUE);
+    EXPECT_EQ(vm.set_option("cgoto", "yes"), EVMC_SET_OPTION_INVALID_VALUE);
+    EXPECT_EQ(vm.set_option("cgoto", "no"), EVMC_SET_OPTION_SUCCESS);
+#else
+    EXPECT_EQ(vm.set_option("cgoto", "no"), EVMC_SET_OPTION_INVALID_NAME);
+#endif
 }

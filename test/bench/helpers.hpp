@@ -7,9 +7,10 @@
 #include <benchmark/benchmark.h>
 #include <evmc/evmc.hpp>
 #include <evmc/mocked_host.hpp>
-#include <evmone/analysis.hpp>
+#include <evmone/advanced_analysis.hpp>
+#include <evmone/advanced_execution.hpp>
 #include <evmone/baseline.hpp>
-#include <evmone/execution.hpp>
+#include <evmone/eof.hpp>
 #include <evmone/vm.hpp>
 
 namespace evmone::test
@@ -21,7 +22,7 @@ constexpr auto default_gas_limit = std::numeric_limits<int64_t>::max();
 
 
 template <typename ExecutionStateT, typename AnalysisT>
-using ExecuteFn = evmc::result(evmc::VM& vm, ExecutionStateT& exec_state, const AnalysisT&,
+using ExecuteFn = evmc::Result(evmc::VM& vm, ExecutionStateT& exec_state, const AnalysisT&,
     const evmc_message&, evmc_revision, evmc::Host&, bytes_view);
 
 template <typename AnalysisT>
@@ -34,15 +35,14 @@ struct FakeExecutionState
 struct FakeCodeAnalysis
 {};
 
-inline AdvancedCodeAnalysis advanced_analyse(evmc_revision rev, bytes_view code)
+inline advanced::AdvancedCodeAnalysis advanced_analyse(evmc_revision rev, bytes_view code)
 {
-    // TODO: Change analyze() signature.
-    return analyze(rev, code.data(), code.size());
+    return advanced::analyze(rev, code);
 }
 
-inline baseline::CodeAnalysis baseline_analyse(evmc_revision /*rev*/, bytes_view code)
+inline baseline::CodeAnalysis baseline_analyse(evmc_revision rev, bytes_view code)
 {
-    return baseline::analyze(code.data(), code.size());
+    return baseline::analyze(rev, code);
 }
 
 inline FakeCodeAnalysis evmc_analyse(evmc_revision /*rev*/, bytes_view /*code*/)
@@ -51,24 +51,24 @@ inline FakeCodeAnalysis evmc_analyse(evmc_revision /*rev*/, bytes_view /*code*/)
 }
 
 
-inline evmc::result advanced_execute(evmc::VM& /*vm*/, AdvancedExecutionState& exec_state,
-    const AdvancedCodeAnalysis& analysis, const evmc_message& msg, evmc_revision rev,
+inline evmc::Result advanced_execute(evmc::VM& /*vm*/, advanced::AdvancedExecutionState& exec_state,
+    const advanced::AdvancedCodeAnalysis& analysis, const evmc_message& msg, evmc_revision rev,
     evmc::Host& host, bytes_view code)
 {
-    exec_state.reset(msg, rev, host.get_interface(), host.to_context(), code.data(), code.size());
-    return evmc::result{execute(exec_state, analysis)};
+    exec_state.reset(msg, rev, host.get_interface(), host.to_context(), code);
+    return evmc::Result{execute(exec_state, analysis)};
 }
 
-inline evmc::result baseline_execute(evmc::VM& c_vm, ExecutionState& exec_state,
+inline evmc::Result baseline_execute(evmc::VM& c_vm, ExecutionState& exec_state,
     const baseline::CodeAnalysis& analysis, const evmc_message& msg, evmc_revision rev,
     evmc::Host& host, bytes_view code)
 {
     const auto& vm = *static_cast<evmone::VM*>(c_vm.get_raw_pointer());
-    exec_state.reset(msg, rev, host.get_interface(), host.to_context(), code.data(), code.size());
-    return evmc::result{baseline::execute(vm, exec_state, analysis)};
+    exec_state.reset(msg, rev, host.get_interface(), host.to_context(), code);
+    return evmc::Result{baseline::execute(vm, msg.gas, exec_state, analysis)};
 }
 
-inline evmc::result evmc_execute(evmc::VM& vm, FakeExecutionState& /*exec_state*/,
+inline evmc::Result evmc_execute(evmc::VM& vm, FakeExecutionState& /*exec_state*/,
     const FakeCodeAnalysis& /*analysis*/, const evmc_message& msg, evmc_revision rev,
     evmc::Host& host, bytes_view code) noexcept
 {
@@ -146,8 +146,8 @@ inline void bench_execute(benchmark::State& state, evmc::VM& vm, bytes_view code
 }
 
 
-constexpr auto bench_advanced_execute =
-    bench_execute<AdvancedExecutionState, AdvancedCodeAnalysis, advanced_execute, advanced_analyse>;
+constexpr auto bench_advanced_execute = bench_execute<advanced::AdvancedExecutionState,
+    advanced::AdvancedCodeAnalysis, advanced_execute, advanced_analyse>;
 
 constexpr auto bench_baseline_execute =
     bench_execute<ExecutionState, baseline::CodeAnalysis, baseline_execute, baseline_analyse>;

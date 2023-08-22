@@ -10,19 +10,26 @@
 > Fast Ethereum Virtual Machine implementation
 
 _evmone_ is a C++ implementation of the Ethereum Virtual Machine (EVM). 
-Created by members of the [Ewasm] team, the project aims for clean, standalone EVM implementation 
+Created by members of the [Ipsilon] (ex-[Ewasm]) team, the project aims for clean, standalone EVM implementation 
 that can be imported as an execution module by Ethereum Client projects. 
 The codebase of _evmone_ is optimized to provide fast and efficient execution of EVM smart contracts.
 
 ### Characteristic of evmone
 
 1. Exposes the [EVMC] API.
-2. Requires C++17 standard.
+2. Requires C++20 standard.
 3. The [intx] library is used to provide 256-bit integer precision.
 4. The [ethash] library is used to provide Keccak hash function implementation
    needed for the special `KECCAK256` instruction.
-5. Contains two interpreters: **Advanced** (default) and **Baseline** (experimental).
-   
+5. Contains two interpreters: 
+   - **Baseline** (default)
+   - **Advanced** (select with the `advanced` option)
+
+### Baseline Interpreter
+
+1. Provides relatively straight-forward but efficient EVM implementation.
+2. Performs only minimalistic `JUMPDEST` analysis.
+
 ### Advanced Interpreter
 
 1. The _indirect call threading_ is the dispatch method used -
@@ -31,20 +38,8 @@ The codebase of _evmone_ is optimized to provide fast and efficient execution of
    and applied once per block during execution.
 3. Performs extensive and expensive bytecode analysis before execution.
 
-### Baseline Interpreter
-
-1. Provides relatively straight-forward EVM implementation.
-2. Performs only minimalistic `JUMPDEST` analysis.
-3. Experimental. Can be enabled with `O=0` option.
-
 
 ## Usage
-
-### Optimization levels
-
-The option `O` controls the "optimization level":
-- `O=2` uses Advanced interpreter (default),
-- `O=0` uses Baseline interpreter.
 
 ### As geth plugin
 
@@ -62,6 +57,7 @@ geth --vm.evm=./libevmone.so
 ```
 
 ### Building from source
+
 To build the evmone EVMC module (shared library), test, and benchmark:
 
 1. Fetch the source code:
@@ -77,7 +73,6 @@ To build the evmone EVMC module (shared library), test, and benchmark:
    ```
 
    ##### Windows
-   *Note: >= Visual Studio 2019 is required since evmone makes heavy use of C++17*
    ```
    cmake -S . -B build -DEVMONE_TESTING=ON -G "Visual Studio 16 2019" -A x64
    ```
@@ -91,8 +86,9 @@ To build the evmone EVMC module (shared library), test, and benchmark:
 3. Run the unit tests or benchmarking tool:
    ```
    build/bin/evmone-unittests
-   build/bin/evmone-bench test/benchmarks
+   build/bin/evmone-bench test/evm-benchmarks/benchmarks
    ```
+
 ### Tools
 
 #### evm-test
@@ -140,6 +136,7 @@ Licensed under the [Apache License, Version 2.0].
 [Apache License, Version 2.0]: LICENSE
 [ethereum]: https://ethereum.org
 [EVMC]: https://github.com/ethereum/evmc
+[Ipsilon]: https://github.com/ipsilon
 [Ewasm]: https://github.com/ewasm
 [intx]: https://github.com/chfast/intx
 [ethash]: https://github.com/chfast/ethash

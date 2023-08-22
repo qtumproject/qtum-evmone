@@ -6,13 +6,14 @@
 /// EVMC instance (class VM) and entry point of evmone is defined here.
 
 #include "vm.hpp"
+#include "advanced_execution.hpp"
 #include "baseline.hpp"
-#include "execution.hpp"
 #include <evmone/evmone.h>
+#include <cassert>
 #include <iostream>
 
 #ifdef QTUM_BUILD
-#define PROJECT_VERSION "0.8.1"
+#define PROJECT_VERSION "0.10.0"
 #endif
 
 namespace evmone
@@ -36,19 +37,23 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     const auto value = (c_value != nullptr) ? std::string_view{c_value} : std::string_view{};
     auto& vm = *static_cast<VM*>(c_vm);
 
-    if (name == "O")
+    if (name == "advanced")
     {
-        if (value == "0")
+        c_vm->execute = evmone::advanced::execute;
+        return EVMC_SET_OPTION_SUCCESS;
+    }
+    else if (name == "cgoto")
+    {
+#if EVMONE_CGOTO_SUPPORTED
+        if (value == "no")
         {
-            c_vm->execute = evmone::baseline::execute;
-            return EVMC_SET_OPTION_SUCCESS;
-        }
-        else if (value == "2")
-        {
-            c_vm->execute = evmone::execute;
+            vm.cgoto = false;
             return EVMC_SET_OPTION_SUCCESS;
         }
         return EVMC_SET_OPTION_INVALID_VALUE;
+#else
+        return EVMC_SET_OPTION_INVALID_NAME;
+#endif
     }
     else if (name == "trace")
     {
@@ -72,7 +77,7 @@ inline constexpr VM::VM() noexcept
         "evmone",
         PROJECT_VERSION,
         evmone::destroy,
-        evmone::execute,
+        evmone::baseline::execute,
         evmone::get_capabilities,
         evmone::set_option,
     }

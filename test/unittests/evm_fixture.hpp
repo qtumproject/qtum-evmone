@@ -32,6 +32,9 @@ namespace evmone::test
 class evm : public testing::TestWithParam<evmc::VM*>
 {
 protected:
+    /// Reports if execution is done by evmone/Advanced.
+    static bool is_advanced() noexcept;
+
     /// The VM handle.
     evmc::VM& vm;
 
@@ -44,8 +47,7 @@ protected:
     evmc_message msg{};
 
     /// The result of execution (available after execute() is invoked).
-    /// TODO: Add default constructor to evmc::result, update code here.
-    evmc::result result{{}};
+    evmc::Result result;
 
     /// The result output. Updated by execute().
     bytes_view output;
@@ -60,14 +62,13 @@ protected:
 
     /// Executes the supplied code.
     ///
-    /// @param gas        The gas limit for execution.
-    /// @param code       The EVM bytecode.
-    /// @param input_hex  The hex encoded EVM "calldata" input.
+    /// @param gas    The gas limit for execution.
+    /// @param code   The EVM bytecode.
+    /// @param input  The EVM "calldata" input.
     /// The execution result will be available in the `result` field.
     /// The `gas_used` field  will be updated accordingly.
-    void execute(int64_t gas, bytes_view code, std::string_view input_hex = {}) noexcept
+    void execute(int64_t gas, const bytecode& code, bytes_view input = {}) noexcept
     {
-        const auto input = from_hex(input_hex);
         msg.input_data = input.data();
         msg.input_size = input.size();
         msg.gas = gas;
@@ -75,7 +76,7 @@ protected:
         if (rev >= EVMC_BERLIN)  // Add EIP-2929 tweak.
         {
             host.access_account(msg.sender);
-            host.access_account(msg.destination);
+            host.access_account(msg.recipient);
         }
 
         result = vm.execute(host, rev, msg, code.data(), code.size());
@@ -83,25 +84,15 @@ protected:
         gas_used = msg.gas - result.gas_left;
     }
 
-    void execute(int64_t gas, const bytecode& code, std::string_view input_hex = {}) noexcept
-    {
-        execute(gas, {code.data(), code.size()}, input_hex);
-    }
-
     /// Executes the supplied code.
     ///
-    /// @param code       The EVM bytecode.
-    /// @param input_hex  The hex encoded EVM "calldata" input.
+    /// @param code   The EVM bytecode.
+    /// @param input  The EVM "calldata" input.
     /// The execution result will be available in the `result` field.
     /// The `gas_used` field  will be updated accordingly.
-    void execute(bytes_view code, std::string_view input_hex = {}) noexcept
+    void execute(const bytecode& code, bytes_view input = {}) noexcept
     {
-        execute(std::numeric_limits<int64_t>::max(), code, input_hex);
-    }
-
-    void execute(const bytecode& code, std::string_view input_hex = {}) noexcept
-    {
-        execute({code.data(), code.size()}, input_hex);
+        execute(std::numeric_limits<int64_t>::max(), code, input);
     }
 };
 }  // namespace evmone::test

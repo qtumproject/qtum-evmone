@@ -9,8 +9,9 @@ namespace evmone::test
 {
 namespace
 {
-evmc::VM advanced_vm{evmc_create_evmone(), {{"O", "2"}}};
-evmc::VM baseline_vm{evmc_create_evmone(), {{"O", "0"}}};
+evmc::VM advanced_vm{evmc_create_evmone(), {{"advanced", ""}}};
+evmc::VM baseline_vm{evmc_create_evmone()};
+evmc::VM bnocgoto_vm{evmc_create_evmone(), {{"cgoto", "no"}}};
 
 const char* print_vm_name(const testing::TestParamInfo<evmc::VM*>& info) noexcept
 {
@@ -18,9 +19,17 @@ const char* print_vm_name(const testing::TestParamInfo<evmc::VM*>& info) noexcep
         return "advanced";
     if (info.param == &baseline_vm)
         return "baseline";
+    if (info.param == &bnocgoto_vm)
+        return "bnocgoto";
     return "unknown";
 }
 }  // namespace
 
-INSTANTIATE_TEST_SUITE_P(evmone, evm, testing::Values(&advanced_vm, &baseline_vm), print_vm_name);
+INSTANTIATE_TEST_SUITE_P(
+    evmone, evm, testing::Values(&advanced_vm, &baseline_vm, &bnocgoto_vm), print_vm_name);
+
+bool evm::is_advanced() noexcept
+{
+    return GetParam() == &advanced_vm;
+}
 }  // namespace evmone::test
