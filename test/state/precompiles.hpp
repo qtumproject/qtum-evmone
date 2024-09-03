@@ -9,9 +9,7 @@
 
 namespace evmone::state
 {
-/// The total number of known precompiles ids, including 0.
-inline constexpr std::size_t NumPrecompiles = 10;
-
+/// The precompile identifiers and their corresponding addresses.
 enum class PrecompileId : uint8_t
 {
     ecrecover = 0x01,
@@ -23,13 +21,20 @@ enum class PrecompileId : uint8_t
     ecmul = 0x07,
     ecpairing = 0x08,
     blake2bf = 0x09,
+    point_evaluation = 0x0a,
+
+    since_byzantium = expmod,         ///< The first precompile introduced in Byzantium.
+    since_istanbul = blake2bf,        ///< The first precompile introduced in Istanbul.
+    since_cancun = point_evaluation,  ///< The first precompile introduced in Cancun.
+    latest = point_evaluation         ///< The latest introduced precompile (highest address).
 };
 
-struct ExecutionResult
-{
-    evmc_status_code status_code;
-    size_t output_size;
-};
+/// The total number of known precompiles ids, including 0.
+inline constexpr std::size_t NumPrecompiles = stdx::to_underlying(PrecompileId::latest) + 1;
 
-std::optional<evmc::Result> call_precompile(evmc_revision rev, const evmc_message& msg) noexcept;
+/// Checks if the address @p addr is considered a precompiled contract in the revision @p rev.
+bool is_precompile(evmc_revision rev, const evmc::address& addr) noexcept;
+
+/// Executes the message to a precompiled contract (msg.code_address must be a precompile).
+evmc::Result call_precompile(evmc_revision rev, const evmc_message& msg) noexcept;
 }  // namespace evmone::state

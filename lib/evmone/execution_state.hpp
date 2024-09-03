@@ -5,6 +5,7 @@
 
 #include <evmc/evmc.hpp>
 #include <intx/intx.hpp>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,28 +20,56 @@ namespace baseline
 class CodeAnalysis;
 }
 
-using uint256 = intx::uint256;
-using bytes = std::basic_string<uint8_t>;
-using bytes_view = std::basic_string_view<uint8_t>;
+using evmc::bytes;
+using evmc::bytes_view;
+using intx::uint256;
 
 
 /// Provides memory for EVM stack.
 class StackSpace
 {
+    static uint256* allocate() noexcept
+    {
+        static constexpr auto alignment = sizeof(uint256);
+        static constexpr auto size = limit * sizeof(uint256);
+#ifdef _MSC_VER
+        // MSVC doesn't support aligned_alloc() but _aligned_malloc() can be used instead.
+        const auto p = _aligned_malloc(size, alignment);
+#else
+        const auto p = std::aligned_alloc(alignment, size);
+#endif
+        return static_cast<uint256*>(p);
+    }
+
+    struct Deleter
+    {
+        // TODO(C++23): static
+        void operator()(void* p) noexcept
+        {
+#ifdef _MSC_VER
+            // For MSVC the _aligned_malloc() must be paired with _aligned_free().
+            _aligned_free(p);
+#else
+            std::free(p);
+#endif
+        }
+    };
+
+    /// The storage allocated for maximum possible number of items.
+    /// Items are aligned to 256 bits for better packing in cache lines.
+    std::unique_ptr<uint256, Deleter> m_stack_space;
+
 public:
     /// The maximum number of EVM stack items.
     static constexpr auto limit = 1024;
 
+    StackSpace() noexcept : m_stack_space{allocate()} {}
+
     /// Returns the pointer to the "bottom", i.e. below the stack space.
     [[nodiscard, clang::no_sanitize("bounds")]] uint256* bottom() noexcept
     {
-        return m_stack_space - 1;
+        return m_stack_space.get() - 1;
     }
-
-private:
-    /// The storage allocated for maximum possible number of items.
-    /// Items are aligned to 256 bits for better packing in cache lines.
-    alignas(sizeof(uint256)) uint256 m_stack_space[limit];
 };
 
 
@@ -135,12 +164,19 @@ public:
     /// For EOF-formatted code this is a reference to entire container.
     bytes_view original_code;
 
+    /// Reference to the EOF data section. May be empty.
+    bytes_view data;
+
     evmc_status_code status = EVMC_SUCCESS;
     size_t output_offset = 0;
     size_t output_size = 0;
 
+    /// Container to be deployed returned from RETURNCONTRACT, used only inside EOFCREATE execution.
+    std::optional<bytes> deploy_container;
+
 private:
     evmc_tx_context m_tx = {};
+    std::optional<std::unordered_map<evmc::bytes32, bytes_view>> m_initcodes;
 
 public:
     /// Pointer to code analysis.
@@ -161,15 +197,19 @@ public:
     ExecutionState() noexcept = default;
 
     ExecutionState(const evmc_message& message, evmc_revision revision,
-        const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
-        bytes_view _code) noexcept
-      : msg{&message}, host{host_interface, host_ctx}, rev{revision}, original_code{_code}
+        const evmc_host_interface& host_interface, evmc_host_context* host_ctx, bytes_view _code,
+        bytes_view _data) noexcept
+      : msg{&message},
+        host{host_interface, host_ctx},
+        rev{revision},
+        original_code{_code},
+        data{_data}
     {}
 
     /// Resets the contents of the ExecutionState so that it could be reused.
     void reset(const evmc_message& message, evmc_revision revision,
-        const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
-        bytes_view _code) noexcept
+        const evmc_host_interface& host_interface, evmc_host_context* host_ctx, bytes_view _code,
+        bytes_view _data) noexcept
     {
         gas_refund = 0;
         memory.clear();
@@ -178,6 +218,7 @@ public:
         rev = revision;
         return_data.clear();
         original_code = _code;
+        data = _data;
         status = EVMC_SUCCESS;
         output_offset = 0;
         output_size = 0;
@@ -191,6 +232,26 @@ public:
         if (INTX_UNLIKELY(m_tx.block_timestamp == 0))
             m_tx = host.get_tx_context();
         return m_tx;
+    }
+
+    /// Get initcode by its hash from transaction initcodes.
+    ///
+    /// Returns empty bytes_view if no such initcode was found.
+    [[nodiscard]] bytes_view get_tx_initcode_by_hash(const evmc_bytes32& hash) noexcept
+    {
+        if (!m_initcodes.has_value())
+        {
+            m_initcodes.emplace();
+            const auto& tx_context = get_tx_context();
+            for (size_t i = 0; i < tx_context.initcodes_count; ++i)
+            {
+                const auto& initcode = tx_context.initcodes[i];
+                m_initcodes->insert({initcode.hash, {initcode.code, initcode.code_size}});
+            }
+        }
+
+        const auto it = m_initcodes->find(hash);
+        return it != m_initcodes->end() ? it->second : bytes_view{};
     }
 };
 }  // namespace evmone

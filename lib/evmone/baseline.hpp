@@ -7,13 +7,11 @@
 #include <evmc/evmc.h>
 #include <evmc/utils.h>
 #include <memory>
-#include <string_view>
 #include <vector>
 
 namespace evmone
 {
-using bytes_view = std::basic_string_view<uint8_t>;
-
+using evmc::bytes_view;
 class ExecutionState;
 class VM;
 
@@ -44,10 +42,6 @@ public:
       : executable_code{code}, eof_header{std::move(header)}
     {}
 };
-static_assert(std::is_move_constructible_v<CodeAnalysis>);
-static_assert(std::is_move_assignable_v<CodeAnalysis>);
-static_assert(!std::is_copy_constructible_v<CodeAnalysis>);
-static_assert(!std::is_copy_assignable_v<CodeAnalysis>);
 
 /// Analyze the code to build the bitmap of valid JUMPDEST locations.
 EVMC_EXPORT CodeAnalysis analyze(evmc_revision rev, bytes_view code);

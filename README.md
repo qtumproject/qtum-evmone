@@ -89,6 +89,18 @@ To build the evmone EVMC module (shared library), test, and benchmark:
    build/bin/evmone-bench test/evm-benchmarks/benchmarks
    ```
 
+### Precompiles
+
+Ethereum Precompiled Contracts (_precompiles_ for short) are only partly supported by evmone.
+
+However, there are options to enable limited precompiles support for testing.
+
+1. For precompiles with missing implementation stubs are enabled by default.
+   They will correctly respond to known inputs.
+2. The CMake option `EVMONE_PRECOMPILES_SILKPRE=1` enables building of
+   the [silkpre] third party library with the implementation of the precompiles.
+   This library also requires [GMP] (e.g. libgmp-dev) library for building and execution.
+
 ### Tools
 
 #### evm-test
@@ -112,6 +124,14 @@ with it.
 
 ```bash
 docker run --entrypoint evmone-bench ethereum/evmone /src/test/benchmarks
+```
+
+### EVM Object Format (EOF) support
+
+evmone supports EOFv1. Since EOF validation is done once during deploy-time, evmone does not revalidate during execution of bytecode. To force EOF revalidation, you can use the `validate_eof` option, example:
+
+```
+evmc run --vm libevmone.so,validate_eof --rev 13 "EF00"
 ```
 
 ## References
@@ -138,10 +158,12 @@ Licensed under the [Apache License, Version 2.0].
 [EVMC]: https://github.com/ethereum/evmc
 [Ipsilon]: https://github.com/ipsilon
 [Ewasm]: https://github.com/ewasm
+[GMP]: https://gmplib.org
 [intx]: https://github.com/chfast/intx
 [ethash]: https://github.com/chfast/ethash
 [Releases]: https://github.com/ethereum/evmone/releases
 [standard readme]: https://github.com/RichardLitt/standard-readme
+[silkpre]: https://github.com/torquem-ch/silkpre
 
 [appveyor badge]: https://img.shields.io/appveyor/ci/chfast/evmone/master.svg?logo=appveyor
 [circleci badge]: https://img.shields.io/circleci/project/github/ethereum/evmone/master.svg?logo=circleci

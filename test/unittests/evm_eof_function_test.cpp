@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "evm_fixture.hpp"
-#include "evmone/eof.hpp"
+#include <evmone/eof.hpp>
 
-using evmone::test::evm;
+using namespace evmone::test;
 
 TEST_P(evm, eof_function_example1)
 {
@@ -13,14 +13,9 @@ TEST_P(evm, eof_function_example1)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
-    const auto code =
-        "EF00 01 010008 020002 000f 0002 030000 00"
-        "00000002 02010002"
-        "6001 6008 b00001 " +
-        ret_top() + "03b1";
-
-    ASSERT_EQ((int)evmone::validate_eof(rev, code), (int)evmone::EOFValidationError{});
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(push(1) + push(8) + OP_CALLF + "0001" + ret_top(), 2)
+                              .code(bytecode{OP_SUB} + OP_RETF, 2, 1, 2);
 
     execute(code);
     EXPECT_GAS_USED(EVMC_SUCCESS, 32);
@@ -33,15 +28,13 @@ TEST_P(evm, eof_function_example2)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
+    rev = EVMC_PRAGUE;
     const auto code =
-        "ef0001 01000c 020003 003b 0017 001d 030000 00 00000004 01010003 01010004"
-        "60043560003560e01c63c766526781145d001c63c6c2ea1781145d00065050600080fd50b00002600052602060"
-        "00f350b0000160005260206000f3"
-        "600181115d0004506001b160018103b0000181029050b1"
-        "600281115d0004506001b160028103b0000260018203b00002019050b1"_hex;
-
-    ASSERT_EQ((int)evmone::validate_eof(rev, code), (int)evmone::EOFValidationError{});
+        "ef0001 01000c 020003 003b 0017 001d 040000 00 00800004 01010003 01010004"
+        "60043560003560e01c63c76652678114e1001c63c6c2ea178114e100065050600080fd50e30002600052602060"
+        "00f350e3000160005260206000f3"
+        "60018111e10004506001e460018103e3000181029050e4"
+        "60028111e10004506001e460028103e3000260018203e30002019050e4"_hex;
 
     // Call fac(5)
     const auto calldata_fac =
@@ -64,12 +57,26 @@ TEST_P(evm, callf_stack_size_1024)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
-    const auto code = bytecode{"ef0001 010008 020002 0BFF 0004 030000 00 000003FF 00000001"_hex} +
-                      1023 * push(1) + OP_CALLF + bytecode{"0x0001"_hex} + 1021 * OP_POP +
-                      OP_RETURN + push(1) + OP_POP + OP_RETF;
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push(1) + OP_CALLF + "0001" + 1021 * OP_POP + OP_RETURN, 1023)
+            .code(push(1) + OP_POP + OP_RETF, 0, 0, 1);
 
-    ASSERT_EQ(evmone::validate_eof(rev, code), evmone::EOFValidationError::success);
+    execute(bytecode{code});
+    EXPECT_STATUS(EVMC_SUCCESS);
+}
+
+TEST_P(evm, callf_with_inputs_stack_size_1024)
+{
+    // CALLF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push(1) + OP_CALLF + "0001" + 1021 * OP_POP + OP_RETURN, 1023)
+            .code(push(1) + OP_POP + OP_RETF, 3, 3, 4);
+
     execute(bytecode{code});
     EXPECT_STATUS(EVMC_SUCCESS);
 }
@@ -80,13 +87,28 @@ TEST_P(evm, callf_stack_overflow)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
-    const auto code =
-        bytecode{"ef0001 010008 020002 0BFF 0007 030000 00 000003FF 00000002"_hex} +  // EOF header
-        1023 * push(1) + OP_CALLF + bytecode{"0x0001"_hex} + 1021 * OP_POP + OP_RETURN +
-        2 * push(1) + 2 * OP_POP + OP_RETF;
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push(1) + OP_CALLF + "0001" + 1021 * OP_POP + OP_RETURN, 1023)
+            .code(push(1) + OP_CALLF + "0002" + OP_POP + OP_RETF, 0, 0, 1)
+            .code(push(1) + OP_POP + OP_RETF, 0, 0, 1);
 
-    ASSERT_EQ(evmone::validate_eof(rev, code), evmone::EOFValidationError::success);
+    execute(bytecode{code});
+    EXPECT_STATUS(EVMC_STACK_OVERFLOW);
+}
+
+TEST_P(evm, callf_with_inputs_stack_overflow)
+{
+    // CALLF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push(1) + OP_CALLF + "0001" + 1021 * OP_POP + OP_RETURN, 1023)
+            .code(push(1) + OP_CALLF + "0002" + OP_POP + OP_RETF, 3, 3, 4)
+            .code(push(1) + OP_POP + OP_RETF, 3, 3, 4);
+
     execute(bytecode{code});
     EXPECT_STATUS(EVMC_STACK_OVERFLOW);
 }
@@ -97,13 +119,12 @@ TEST_P(evm, callf_call_stack_size_1024)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
-    const auto code = bytecode{"ef0001 010008 020002 0007 000e 030000 00 00000001 01000002"_hex} +
-                      push(1023) + OP_CALLF + bytecode{"0x0001"_hex} + OP_STOP + OP_DUP1 +
-                      OP_RJUMPI + bytecode{"0x0002"_hex} + OP_POP + OP_RETF + push(1) + OP_SWAP1 +
-                      OP_SUB + OP_CALLF + bytecode{"0x0001"_hex} + OP_RETF;
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(push(1023) + OP_CALLF + "0001" + OP_STOP, 1)
+                              .code(bytecode{OP_DUP1} + OP_RJUMPI + "0002" + OP_POP + OP_RETF +
+                                        push(1) + OP_SWAP1 + OP_SUB + OP_CALLF + "0001" + OP_RETF,
+                                  1, 0, 2);
 
-    ASSERT_EQ(evmone::validate_eof(rev, code), evmone::EOFValidationError::success);
     execute(bytecode{code});
     EXPECT_STATUS(EVMC_SUCCESS);
 }
@@ -114,13 +135,138 @@ TEST_P(evm, callf_call_stack_size_1025)
     if (is_advanced())
         return;
 
-    rev = EVMC_CANCUN;
-    const auto code = bytecode{"ef0001 010008 020002 0007 000e 030000 00 00000001 01000002"_hex} +
-                      push(1024) + OP_CALLF + bytecode{"0x0001"_hex} + OP_STOP + OP_DUP1 +
-                      OP_RJUMPI + bytecode{"0x0002"_hex} + OP_POP + OP_RETF + push(1) + OP_SWAP1 +
-                      OP_SUB + OP_CALLF + bytecode{"0x0001"_hex} + OP_RETF;
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(push(1024) + OP_CALLF + "0001" + OP_STOP, 1)
+                              .code(bytecode{OP_DUP1} + OP_RJUMPI + "0002" + OP_POP + OP_RETF +
+                                        push(1) + OP_SWAP1 + OP_SUB + OP_CALLF + "0001" + OP_RETF,
+                                  1, 0, 2);
 
-    ASSERT_EQ(evmone::validate_eof(rev, code), evmone::EOFValidationError::success);
     execute(bytecode{code});
     EXPECT_STATUS(EVMC_STACK_OVERFLOW);
+}
+
+TEST_P(evm, minimal_jumpf)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(bytecode{OP_JUMPF} + "0001").code(bytecode{OP_STOP}, 0, 0x80, 0);
+
+    execute(bytecode{code});
+    EXPECT_STATUS(EVMC_SUCCESS);
+}
+
+TEST_P(evm, jumpf_to_returning_function)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(
+        bytecode{OP_CALLF} + "0001" + OP_PUSH0 + OP_MSTORE + OP_PUSH1 + "20" + OP_PUSH0 + OP_RETURN,
+        2)
+                              .code(bytecode{OP_PUSH1} + "01" + OP_JUMPF + "0002", 0, 1, 1)
+                              .code(bytecode{OP_PUSH1} + "02" + OP_ADD + OP_RETF, 1, 1, 2);
+
+    execute(bytecode{code});
+    EXPECT_STATUS(EVMC_SUCCESS);
+    EXPECT_OUTPUT_INT(3);
+}
+
+TEST_P(evm, jumpf_to_function_with_fewer_outputs)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(
+        bytecode{OP_CALLF} + "0001" + OP_PUSH0 + OP_MSTORE + OP_PUSH1 + "20" + OP_PUSH0 + OP_RETURN,
+        3)
+                              .code(push(0xff) + push(0x01) + OP_JUMPF + "0002", 0, 2, 2)
+                              .code(push(0x02) + OP_ADD + OP_RETF, 1, 1, 2);
+
+    execute(bytecode{code});
+    EXPECT_STATUS(EVMC_SUCCESS);
+    EXPECT_OUTPUT_INT(3);
+}
+
+TEST_P(evm, jumpf_stack_size_1024)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push0() + OP_JUMPF + "0001", 1023).code(push0() + OP_STOP, 0, 0x80, 1);
+
+    execute(code);
+    EXPECT_STATUS(EVMC_SUCCESS);
+}
+
+TEST_P(evm, jumpf_with_inputs_stack_size_1024)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code =
+        eof_bytecode(1023 * push0() + OP_JUMPF + "0001", 1023).code(push0() + OP_STOP, 3, 0x80, 4);
+
+    execute(code);
+    EXPECT_STATUS(EVMC_SUCCESS);
+}
+
+TEST_P(evm, jumpf_stack_overflow)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(1023 * push0() + OP_JUMPF + "0001", 1023)
+                              .code(push0() + OP_JUMPF + "0002", 0, 0x80, 1)
+                              .code(push0() + OP_STOP, 0, 0x80, 1);
+
+    execute(code);
+    EXPECT_STATUS(EVMC_STACK_OVERFLOW);
+}
+
+TEST_P(evm, jumpf_with_inputs_stack_overflow)
+{
+    // JUMPF is not implemented in Advanced.
+    if (is_advanced())
+        return;
+
+    rev = EVMC_PRAGUE;
+    const bytecode code = eof_bytecode(1023 * push0() + OP_JUMPF + "0001", 1023)
+                              .code(push0() + OP_JUMPF + "0002", 3, 0x80, 4)
+                              .code(push0() + OP_STOP, 3, 0x80, 4);
+
+    ASSERT_EQ(evmone::validate_eof(rev, evmone::ContainerKind::runtime, code),
+        evmone::EOFValidationError::success);
+    execute(code);
+    EXPECT_STATUS(EVMC_STACK_OVERFLOW);
+}
+
+TEST_P(evm, functions_undefined_in_legacy)
+{
+    rev = EVMC_PRAGUE;
+    auto code = bytecode{OP_CALLF} + "0001" + OP_STOP;
+    execute(code);
+    EXPECT_STATUS(EVMC_UNDEFINED_INSTRUCTION);
+
+    code = bytecode{OP_RETF};
+    execute(code);
+    EXPECT_STATUS(EVMC_UNDEFINED_INSTRUCTION);
+
+    code = bytecode{OP_JUMPF} + "0001";
+    execute(code);
+    EXPECT_STATUS(EVMC_UNDEFINED_INSTRUCTION);
 }

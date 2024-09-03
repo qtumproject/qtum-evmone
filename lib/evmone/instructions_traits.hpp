@@ -164,15 +164,35 @@ constexpr inline GasCostTable gas_costs = []() noexcept {
     table[EVMC_SHANGHAI][OP_PUSH0] = 2;
 
     table[EVMC_CANCUN] = table[EVMC_SHANGHAI];
-    table[EVMC_CANCUN][OP_DUPN] = 3;
-    table[EVMC_CANCUN][OP_SWAPN] = 3;
-    table[EVMC_CANCUN][OP_RJUMP] = 2;
-    table[EVMC_CANCUN][OP_RJUMPI] = 4;
-    table[EVMC_CANCUN][OP_RJUMPV] = 4;
-    table[EVMC_CANCUN][OP_CALLF] = 5;
-    table[EVMC_CANCUN][OP_RETF] = 3;
+    table[EVMC_CANCUN][OP_BLOBHASH] = 3;
+    table[EVMC_CANCUN][OP_BLOBBASEFEE] = 2;
+    table[EVMC_CANCUN][OP_TLOAD] = warm_storage_read_cost;
+    table[EVMC_CANCUN][OP_TSTORE] = warm_storage_read_cost;
+    table[EVMC_CANCUN][OP_MCOPY] = 3;
 
     table[EVMC_PRAGUE] = table[EVMC_CANCUN];
+    table[EVMC_PRAGUE][OP_DUPN] = 3;
+    table[EVMC_PRAGUE][OP_SWAPN] = 3;
+    table[EVMC_PRAGUE][OP_EXCHANGE] = 3;
+    table[EVMC_PRAGUE][OP_RJUMP] = 2;
+    table[EVMC_PRAGUE][OP_RJUMPI] = 4;
+    table[EVMC_PRAGUE][OP_RJUMPV] = 4;
+    table[EVMC_PRAGUE][OP_CALLF] = 5;
+    table[EVMC_PRAGUE][OP_RETF] = 3;
+    table[EVMC_PRAGUE][OP_JUMPF] = 5;
+    table[EVMC_PRAGUE][OP_DATALOAD] = 4;
+    table[EVMC_PRAGUE][OP_DATALOADN] = 3;
+    table[EVMC_PRAGUE][OP_DATASIZE] = 2;
+    table[EVMC_PRAGUE][OP_DATACOPY] = 3;
+    table[EVMC_PRAGUE][OP_RETURNDATALOAD] = 3;
+    table[EVMC_PRAGUE][OP_EXTCALL] = warm_storage_read_cost;
+    table[EVMC_PRAGUE][OP_EXTDELEGATECALL] = warm_storage_read_cost;
+    table[EVMC_PRAGUE][OP_EXTSTATICCALL] = warm_storage_read_cost;
+    table[EVMC_PRAGUE][OP_EOFCREATE] = 32000;
+    table[EVMC_PRAGUE][OP_RETURNCONTRACT] = 0;
+
+    table[EVMC_OSAKA] = table[EVMC_PRAGUE];
+    table[EVMC_OSAKA][OP_TXCREATE] = 32000;
 
     return table;
 }();
@@ -194,7 +214,7 @@ struct Traits
     bool is_terminating = false;
 
     /// The number of stack items the instruction accesses during execution.
-    int8_t stack_height_required = 0;
+    uint8_t stack_height_required = 0;
 
     /// The stack height change caused by the instruction execution. Can be negative.
     int8_t stack_height_change = 0;
@@ -208,7 +228,7 @@ struct Traits
 /// Determines if an instruction has constant base gas cost across all revisions.
 /// Note that this is not true for instructions with constant base gas cost but
 /// not available in the first revision (e.g. SHL).
-inline constexpr bool has_const_gas_cost(Opcode op) noexcept
+consteval bool has_const_gas_cost(Opcode op) noexcept
 {
     const auto g = gas_costs[EVMC_FRONTIER][op];
     for (size_t r = EVMC_FRONTIER + 1; r <= EVMC_MAX_REVISION; ++r)
@@ -280,6 +300,8 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_CHAINID] = {"CHAINID", 0, false, 0, 1, EVMC_ISTANBUL};
     table[OP_SELFBALANCE] = {"SELFBALANCE", 0, false, 0, 1, EVMC_ISTANBUL};
     table[OP_BASEFEE] = {"BASEFEE", 0, false, 0, 1, EVMC_LONDON};
+    table[OP_BLOBHASH] = {"BLOBHASH", 0, false, 1, 0, EVMC_CANCUN};
+    table[OP_BLOBBASEFEE] = {"BLOBBASEFEE", 0, false, 0, 1, EVMC_CANCUN};
 
     table[OP_POP] = {"POP", 0, false, 1, -1, EVMC_FRONTIER};
     table[OP_MLOAD] = {"MLOAD", 0, false, 1, 0, EVMC_FRONTIER};
@@ -293,11 +315,13 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_MSIZE] = {"MSIZE", 0, false, 0, 1, EVMC_FRONTIER};
     table[OP_GAS] = {"GAS", 0, false, 0, 1, EVMC_FRONTIER};
     table[OP_JUMPDEST] = {"JUMPDEST", 0, false, 0, 0, EVMC_FRONTIER};
-    table[OP_RJUMP] = {"RJUMP", 2, false, 0, 0, EVMC_CANCUN};
-    table[OP_RJUMPI] = {"RJUMPI", 2, false, 1, -1, EVMC_CANCUN};
+    table[OP_RJUMP] = {"RJUMP", 2, false, 0, 0, EVMC_PRAGUE};
+    table[OP_RJUMPI] = {"RJUMPI", 2, false, 1, -1, EVMC_PRAGUE};
     table[OP_RJUMPV] = {
-        "RJUMPV", 0 /* WARNING: immediate_size is dynamic */, false, 1, -1, EVMC_CANCUN};
+        "RJUMPV", 1 /* 1 byte static immediate + dynamic immediate */, false, 1, -1, EVMC_PRAGUE};
 
+    table[OP_TLOAD] = {"TLOAD", 0, false, 1, 0, EVMC_CANCUN};
+    table[OP_TSTORE] = {"TSTORE", 0, false, 2, -2, EVMC_CANCUN};
     table[OP_PUSH0] = {"PUSH0", 0, false, 0, 1, EVMC_SHANGHAI};
 
     table[OP_PUSH1] = {"PUSH1", 1, false, 0, 1, EVMC_FRONTIER};
@@ -373,8 +397,14 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_LOG3] = {"LOG3", 0, false, 5, -5, EVMC_FRONTIER};
     table[OP_LOG4] = {"LOG4", 0, false, 6, -6, EVMC_FRONTIER};
 
-    table[OP_DUPN] = {"DUPN", 1, false, 0, 1, EVMC_CANCUN};
-    table[OP_SWAPN] = {"SWAPN", 1, false, 0, 0, EVMC_CANCUN};
+    table[OP_DUPN] = {"DUPN", 1, false, 0, 1, EVMC_PRAGUE};
+    table[OP_SWAPN] = {"SWAPN", 1, false, 0, 0, EVMC_PRAGUE};
+    table[OP_EXCHANGE] = {"EXCHANGE", 1, false, 0, 0, EVMC_PRAGUE};
+    table[OP_MCOPY] = {"MCOPY", 0, false, 3, -3, EVMC_CANCUN};
+    table[OP_DATALOAD] = {"DATALOAD", 0, false, 1, 0, EVMC_PRAGUE};
+    table[OP_DATALOADN] = {"DATALOADN", 2, false, 0, 1, EVMC_PRAGUE};
+    table[OP_DATASIZE] = {"DATASIZE", 0, false, 0, 1, EVMC_PRAGUE};
+    table[OP_DATACOPY] = {"DATACOPY", 0, false, 3, -3, EVMC_PRAGUE};
 
     table[OP_CREATE] = {"CREATE", 0, false, 3, -2, EVMC_FRONTIER};
     table[OP_CALL] = {"CALL", 0, false, 7, -6, EVMC_FRONTIER};
@@ -382,9 +412,17 @@ constexpr inline std::array<Traits, 256> traits = []() noexcept {
     table[OP_RETURN] = {"RETURN", 0, true, 2, -2, EVMC_FRONTIER};
     table[OP_DELEGATECALL] = {"DELEGATECALL", 0, false, 6, -5, EVMC_HOMESTEAD};
     table[OP_CREATE2] = {"CREATE2", 0, false, 4, -3, EVMC_CONSTANTINOPLE};
+    table[OP_RETURNDATALOAD] = {"RETURNDATALOAD", 0, false, 1, 0, EVMC_PRAGUE};
+    table[OP_EOFCREATE] = {"EOFCREATE", 1, false, 4, -3, EVMC_PRAGUE};
+    table[OP_TXCREATE] = {"TXCREATE", 0, false, 5, -4, EVMC_OSAKA};
+    table[OP_RETURNCONTRACT] = {"RETURNCONTRACT", 1, true, 2, -2, EVMC_PRAGUE};
+    table[OP_EXTCALL] = {"EXTCALL", 0, false, 4, -3, EVMC_PRAGUE};
+    table[OP_EXTDELEGATECALL] = {"EXTDELEGATECALL", 0, false, 3, -2, EVMC_PRAGUE};
     table[OP_STATICCALL] = {"STATICCALL", 0, false, 6, -5, EVMC_BYZANTIUM};
-    table[OP_CALLF] = {"CALLF", 2, false, 0, 0, EVMC_CANCUN};
-    table[OP_RETF] = {"RETF", 0, true, 0, 0, EVMC_CANCUN};
+    table[OP_EXTSTATICCALL] = {"EXTSTATICCALL", 0, false, 3, -2, EVMC_PRAGUE};
+    table[OP_CALLF] = {"CALLF", 2, false, 0, 0, EVMC_PRAGUE};
+    table[OP_RETF] = {"RETF", 0, true, 0, 0, EVMC_PRAGUE};
+    table[OP_JUMPF] = {"JUMPF", 2, true, 0, 0, EVMC_PRAGUE};
     table[OP_REVERT] = {"REVERT", 0, true, 2, -2, EVMC_BYZANTIUM};
     table[OP_INVALID] = {"INVALID", 0, true, 0, 0, EVMC_FRONTIER};
     table[OP_SELFDESTRUCT] = {"SELFDESTRUCT", 0, true, 1, -1, EVMC_FRONTIER};

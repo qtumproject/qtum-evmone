@@ -4,17 +4,13 @@
 #pragma once
 
 #include "../state/state.hpp"
+#include "../state/test_state.hpp"
 #include <nlohmann/json.hpp>
-#include <filesystem>
 
-namespace fs = std::filesystem;
 namespace json = nlohmann;
 
 namespace evmone::test
 {
-
-/// Translates tests fork name to EVM revision
-evmc_revision to_rev(std::string_view s);
 
 struct TestMultiTransaction : state::Transaction
 {
@@ -50,7 +46,7 @@ struct StateTransitionTest
         {
             TestMultiTransaction::Indexes indexes;
             hash256 state_hash;
-            hash256 logs_hash;
+            hash256 logs_hash = EmptyListHash;
             bool exception = false;
         };
 
@@ -58,7 +54,8 @@ struct StateTransitionTest
         std::vector<Expectation> expectations;
     };
 
-    state::State pre_state;
+    std::string name;
+    TestState pre_state;
     state::BlockInfo block;
     TestMultiTransaction multi_tx;
     std::vector<Case> cases;
@@ -75,21 +72,41 @@ template <>
 int64_t from_json<int64_t>(const json::json& j);
 
 template <>
+address from_json<address>(const json::json& j);
+
+template <>
+hash256 from_json<hash256>(const json::json& j);
+
+template <>
+bytes from_json<bytes>(const json::json& j);
+
+template <>
 state::BlockInfo from_json<state::BlockInfo>(const json::json& j);
 
 template <>
-state::State from_json<state::State>(const json::json& j);
+state::Withdrawal from_json<state::Withdrawal>(const json::json& j);
+
+template <>
+TestState from_json<TestState>(const json::json& j);
 
 template <>
 state::Transaction from_json<state::Transaction>(const json::json& j);
 
-StateTransitionTest load_state_test(std::istream& input);
+/// Exports the State (accounts) to JSON format (aka pre/post/alloc state).
+json::json to_json(const TestState& state);
 
-/// Validates deployed EOF containers before running state test.
-/// Throws exception on any invalid EOF in state.
-void validate_deployed_code(const state::State& state, evmc_revision rev);
+std::vector<StateTransitionTest> load_state_tests(std::istream& input);
 
-void run_state_test(const StateTransitionTest& test, evmc::VM& vm);
+/// Validates an Ethereum state:
+/// - checks that there are no zero-value storage entries,
+/// - checks that there are no invalid EOF codes.
+/// Throws std::invalid_argument exception.
+void validate_state(const TestState& state, evmc_revision rev);
+
+/// Execute the state @p test using the @p vm.
+///
+/// @param trace_summary  Output execution summary to the default trace stream.
+void run_state_test(const StateTransitionTest& test, evmc::VM& vm, bool trace_summary);
 
 /// Computes the hash of the RLP-encoded list of transaction logs.
 /// This method is only used in tests.
@@ -108,5 +125,4 @@ inline std::string hex0x(const bytes_view& v)
 {
     return "0x" + evmc::hex(v);
 }
-
 }  // namespace evmone::test

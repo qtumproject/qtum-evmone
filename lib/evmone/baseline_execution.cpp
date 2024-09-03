@@ -26,72 +26,6 @@ namespace evmone::baseline
 {
 namespace
 {
-CodeAnalysis::JumpdestMap analyze_jumpdests(bytes_view code)
-{
-    // To find if op is any PUSH opcode (OP_PUSH1 <= op <= OP_PUSH32)
-    // it can be noticed that OP_PUSH32 is INT8_MAX (0x7f) therefore
-    // static_cast<int8_t>(op) <= OP_PUSH32 is always true and can be skipped.
-    static_assert(OP_PUSH32 == std::numeric_limits<int8_t>::max());
-
-    CodeAnalysis::JumpdestMap map(code.size());  // Allocate and init bitmap with zeros.
-    for (size_t i = 0; i < code.size(); ++i)
-    {
-        const auto op = code[i];
-        if (static_cast<int8_t>(op) >= OP_PUSH1)  // If any PUSH opcode (see explanation above).
-            i += op - size_t{OP_PUSH1 - 1};       // Skip PUSH data.
-        else if (INTX_UNLIKELY(op == OP_JUMPDEST))
-            map[i] = true;
-    }
-
-    return map;
-}
-
-std::unique_ptr<uint8_t[]> pad_code(bytes_view code)
-{
-    // We need at most 33 bytes of code padding: 32 for possible missing all data bytes of PUSH32
-    // at the very end of the code; and one more byte for STOP to guarantee there is a terminating
-    // instruction at the code end.
-    constexpr auto padding = 32 + 1;
-
-    // Using "raw" new operator instead of std::make_unique() to get uninitialized array.
-    std::unique_ptr<uint8_t[]> padded_code{new uint8_t[code.size() + padding]};
-    std::copy(std::begin(code), std::end(code), padded_code.get());
-    std::fill_n(&padded_code[code.size()], padding, uint8_t{OP_STOP});
-    return padded_code;
-}
-
-
-CodeAnalysis analyze_legacy(bytes_view code)
-{
-    // TODO: The padded code buffer and jumpdest bitmap can be created with single allocation.
-    return {pad_code(code), code.size(), analyze_jumpdests(code)};
-}
-
-CodeAnalysis analyze_eof1(bytes_view container)
-{
-    auto header = read_valid_eof1_header(container);
-
-    // Extract all code sections as single buffer reference.
-    // TODO: It would be much easier if header had code_sections_offset and data_section_offset
-    //       with code_offsets[] being relative to code_sections_offset.
-    const auto code_sections_offset = header.code_offsets[0];
-    const auto code_sections_end = size_t{header.code_offsets.back()} + header.code_sizes.back();
-    const auto executable_code =
-        container.substr(code_sections_offset, code_sections_end - code_sections_offset);
-
-    return CodeAnalysis{executable_code, std::move(header)};
-}
-}  // namespace
-
-CodeAnalysis analyze(evmc_revision rev, bytes_view code)
-{
-    if (rev < EVMC_CANCUN || !is_eof_container(code))
-        return analyze_legacy(code);
-    return analyze_eof1(code);
-}
-
-namespace
-{
 /// Checks instruction requirements before execution.
 ///
 /// This checks:
@@ -195,6 +129,13 @@ struct Position
 }
 
 [[release_inline]] inline code_iterator invoke(
+    code_iterator (*instr_fn)(StackTop, code_iterator) noexcept, Position pos, int64_t& /*gas*/,
+    ExecutionState& /*state*/) noexcept
+{
+    return instr_fn(pos.stack_top, pos.code_it);
+}
+
+[[release_inline]] inline code_iterator invoke(
     TermResult (*instr_fn)(StackTop, int64_t, ExecutionState&) noexcept, Position pos, int64_t& gas,
     ExecutionState& state) noexcept
 {
@@ -203,7 +144,30 @@ struct Position
     state.status = result.status;
     return nullptr;
 }
-/// @}
+
+[[release_inline]] inline code_iterator invoke(
+    Result (*instr_fn)(StackTop, int64_t, ExecutionState&, code_iterator&) noexcept, Position pos,
+    int64_t& gas, ExecutionState& state) noexcept
+{
+    const auto result = instr_fn(pos.stack_top, gas, state, pos.code_it);
+    gas = result.gas_left;
+    if (result.status != EVMC_SUCCESS)
+    {
+        state.status = result.status;
+        return nullptr;
+    }
+    return pos.code_it;
+}
+
+[[release_inline]] inline code_iterator invoke(
+    TermResult (*instr_fn)(StackTop, int64_t, ExecutionState&, code_iterator) noexcept,
+    Position pos, int64_t& gas, ExecutionState& state) noexcept
+{
+    const auto result = instr_fn(pos.stack_top, gas, state, pos.code_it);
+    gas = result.gas_left;
+    state.status = result.status;
+    return nullptr;
+}
 
 /// A helper to invoke the instruction implementation of the given opcode Op.
 template <Opcode Op>
@@ -352,8 +316,13 @@ evmc_result execute(
     const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_refund : 0;
 
     assert(state.output_size != 0 || state.output_offset == 0);
-    const auto result = evmc::make_result(state.status, gas_left, gas_refund,
-        state.output_size != 0 ? &state.memory[state.output_offset] : nullptr, state.output_size);
+    const auto result =
+        (state.deploy_container.has_value() ?
+                evmc::make_result(state.status, gas_left, gas_refund,
+                    state.deploy_container->data(), state.deploy_container->size()) :
+                evmc::make_result(state.status, gas_left, gas_refund,
+                    state.output_size != 0 ? &state.memory[state.output_offset] : nullptr,
+                    state.output_size));
 
     if (INTX_UNLIKELY(tracer != nullptr))
         tracer->notify_execution_end(result);
@@ -365,9 +334,22 @@ evmc_result execute(evmc_vm* c_vm, const evmc_host_interface* host, evmc_host_co
     evmc_revision rev, const evmc_message* msg, const uint8_t* code, size_t code_size) noexcept
 {
     auto vm = static_cast<VM*>(c_vm);
-    const auto jumpdest_map = analyze(rev, {code, code_size});
-    auto state =
-        std::make_unique<ExecutionState>(*msg, rev, *host, ctx, bytes_view{code, code_size});
-    return execute(*vm, msg->gas, *state, jumpdest_map);
+    const bytes_view container{code, code_size};
+
+    // Since EOF validation recurses into subcontainers, it only makes sense to do for top level
+    // message calls. The condition for `msg->kind` inside differentiates between creation tx code
+    // (initcode) and already deployed code (runtime).
+    if (vm->validate_eof && rev >= EVMC_PRAGUE && is_eof_container(container) && msg->depth == 0)
+    {
+        const auto container_kind =
+            (msg->kind == EVMC_EOFCREATE ? ContainerKind::initcode : ContainerKind::runtime);
+        if (validate_eof(rev, container_kind, container) != EOFValidationError::success)
+            return evmc_make_result(EVMC_CONTRACT_VALIDATION_FAILURE, 0, 0, nullptr, 0);
+    }
+
+    const auto code_analysis = analyze(rev, container);
+    const auto data = code_analysis.eof_header.get_data(container);
+    auto state = std::make_unique<ExecutionState>(*msg, rev, *host, ctx, container, data);
+    return execute(*vm, msg->gas, *state, code_analysis);
 }
 }  // namespace evmone::baseline

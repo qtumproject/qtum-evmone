@@ -2,6 +2,7 @@
 // Copyright 2023 The evmone Authors.
 // SPDX-License-Identifier: Apache-2.0
 
+#include <CLI/CLI.hpp>
 #include <evmc/evmc.hpp>
 #include <evmone/eof.hpp>
 #include <iostream>
@@ -35,10 +36,19 @@ std::optional<evmc::bytes> from_hex_skip_nonalnum(InputIterator begin, InputIter
 
 }  // namespace
 
-int main()
+int main(int argc, char* argv[])
 {
     try
     {
+        CLI::App app{"evmone eofparse tool"};
+        const auto& initcode_flag =
+            *app.add_flag("--initcode", "Validate code as initcode containers");
+
+        app.parse(argc, argv);
+        const auto container_kind =
+            initcode_flag ? evmone::ContainerKind::initcode : evmone::ContainerKind::runtime;
+
+        int num_errors = 0;
         for (std::string line; std::getline(std::cin, line);)
         {
             if (line.empty() || line.starts_with('#'))
@@ -48,14 +58,16 @@ int main()
             if (!o)
             {
                 std::cout << "err: invalid hex\n";
+                ++num_errors;
                 continue;
             }
 
             const auto& eof = *o;
-            const auto err = evmone::validate_eof(EVMC_CANCUN, eof);
+            const auto err = evmone::validate_eof(EVMC_PRAGUE, container_kind, eof);
             if (err != evmone::EOFValidationError::success)
             {
                 std::cout << "err: " << evmone::get_error_message(err) << "\n";
+                ++num_errors;
                 continue;
             }
 
@@ -69,11 +81,11 @@ int main()
             }
             std::cout << "\n";
         }
-        return 0;
+        return num_errors;
     }
     catch (const std::exception& ex)
     {
         std::cerr << ex.what() << "\n";
-        return 1;
+        return -1;
     }
 }
