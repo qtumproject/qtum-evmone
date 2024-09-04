@@ -175,8 +175,7 @@ EVMC_EXPORT std::ostream& operator<<(std::ostream& os, EOFValidationError err) n
 
 /// Loads big endian int16_t from data. Unsafe.
 /// TODO: Move it to intx
-template <class T>
-inline int16_t read_int16_be(T it) noexcept
+inline int16_t read_int16_be(auto it) noexcept
 {
     const uint8_t h = *it++;
     const uint8_t l = *it;
@@ -185,8 +184,7 @@ inline int16_t read_int16_be(T it) noexcept
 
 /// Loads big endian uint16_t from data. Unsafe.
 /// TODO: Move it to intx
-template <class T>
-inline uint16_t read_uint16_be(T it) noexcept
+inline uint16_t read_uint16_be(auto it) noexcept
 {
     const uint8_t h = *it++;
     const uint8_t l = *it;
