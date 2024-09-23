@@ -273,6 +273,7 @@ template <>
 TestState from_json<TestState>(const json::json& j)
 {
     TestState o;
+    assert(j.is_object());
     for (const auto& [j_addr, j_acc] : j.items())
     {
         auto& acc =
@@ -297,6 +298,11 @@ static void from_json_tx_common(const json::json& j, state::Transaction& o)
 {
     o.sender = from_json<evmc::address>(j.at("sender"));
     o.nonce = from_json<uint64_t>(j.at("nonce"));
+
+    if (const auto chain_id_it = j.find("chainId"); chain_id_it != j.end())
+        o.chain_id = from_json<uint8_t>(*chain_id_it);
+    else
+        o.chain_id = 1;
 
     if (const auto to_it = j.find("to"); to_it != j.end())
     {
@@ -331,12 +337,6 @@ static void from_json_tx_common(const json::json& j, state::Transaction& o)
         for (const auto& hash : *it)
             o.blob_hashes.push_back(from_json<bytes32>(hash));
     }
-    else if (const auto it_initcodes = j.find("initcodes"); it_initcodes != j.end())
-    {
-        o.type = state::Transaction::Type::initcodes;
-        for (const auto& initcode : *it_initcodes)
-            o.initcodes.push_back(from_json<bytes>(initcode));
-    }
 }
 
 template <>
@@ -344,8 +344,6 @@ state::Transaction from_json<state::Transaction>(const json::json& j)
 {
     state::Transaction o;
     from_json_tx_common(j, o);
-    if (const auto chain_id_it = j.find("chainId"); chain_id_it != j.end())
-        o.chain_id = from_json<uint8_t>(*chain_id_it);
 
     if (const auto it = j.find("data"); it != j.end())
         o.data = from_json<bytes>(*it);

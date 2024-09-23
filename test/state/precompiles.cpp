@@ -6,7 +6,9 @@
 #include "precompiles_internal.hpp"
 #include "precompiles_stubs.hpp"
 #include <evmone_precompiles/blake2b.hpp>
+#include <evmone_precompiles/bls.hpp>
 #include <evmone_precompiles/bn254.hpp>
+#include <evmone_precompiles/kzg.hpp>
 #include <evmone_precompiles/ripemd160.hpp>
 #include <evmone_precompiles/secp256k1.hpp>
 #include <evmone_precompiles/sha256.hpp>
@@ -40,6 +42,25 @@ inline constexpr int64_t cost_per_input_word(size_t input_size) noexcept
 {
     return BaseCost + WordCost * num_words(input_size);
 }
+
+int64_t bls_msm_cost(size_t k, int64_t multiplication_cost) noexcept
+{
+    assert(k > 0);
+
+    static constexpr int64_t MULTIPLIER = 1000;
+    static constexpr int16_t DISCOUNT[128] = {1200, 888, 764, 641, 594, 547, 500, 453, 438, 423,
+        408, 394, 379, 364, 349, 334, 330, 326, 322, 318, 314, 310, 306, 302, 298, 294, 289, 285,
+        281, 277, 273, 269, 268, 266, 265, 263, 262, 260, 259, 257, 256, 254, 253, 251, 250, 248,
+        247, 245, 244, 242, 241, 239, 238, 236, 235, 233, 232, 231, 229, 228, 226, 225, 223, 222,
+        221, 220, 219, 219, 218, 217, 216, 216, 215, 214, 213, 213, 212, 211, 211, 210, 209, 208,
+        208, 207, 206, 205, 205, 204, 203, 202, 202, 201, 200, 199, 199, 198, 197, 196, 196, 195,
+        194, 193, 193, 192, 191, 191, 190, 189, 188, 188, 187, 186, 185, 185, 184, 183, 182, 182,
+        181, 180, 179, 179, 178, 177, 176, 176, 175, 174};
+
+    const auto d = DISCOUNT[std::min(k, std::size(DISCOUNT)) - 1];
+    return (static_cast<int64_t>(k) * multiplication_cost * d) / MULTIPLIER;
+}
+
 }  // namespace
 
 PrecompileAnalysis ecrecover_analyze(bytes_view /*input*/, evmc_revision /*rev*/) noexcept
@@ -151,6 +172,76 @@ PrecompileAnalysis point_evaluation_analyze(bytes_view, evmc_revision) noexcept
 {
     static constexpr auto POINT_EVALUATION_PRECOMPILE_GAS = 50000;
     return {POINT_EVALUATION_PRECOMPILE_GAS, 64};
+}
+
+PrecompileAnalysis bls12_g1add_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_G1ADD_PRECOMPILE_GAS = 500;
+    return {BLS12_G1ADD_PRECOMPILE_GAS, 128};
+}
+
+PrecompileAnalysis bls12_g1mul_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_G1MUL_PRECOMPILE_GAS = 12000;
+    return {BLS12_G1MUL_PRECOMPILE_GAS, 128};
+}
+
+PrecompileAnalysis bls12_g1msm_analyze(bytes_view input, evmc_revision) noexcept
+{
+    if (input.empty() || input.size() % 160 != 0)
+        return {GasCostMax, 0};
+
+    static constexpr auto BLS12_G1MUL_PRECOMPILE_GAS = 12000;
+    return {bls_msm_cost(input.size() / 160, BLS12_G1MUL_PRECOMPILE_GAS), 128};
+}
+
+PrecompileAnalysis bls12_g2add_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_G2ADD_PRECOMPILE_GAS = 800;
+    return {BLS12_G2ADD_PRECOMPILE_GAS, 256};
+}
+
+PrecompileAnalysis bls12_g2mul_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_G2MUL_PRECOMPILE_GAS = 45000;
+    return {BLS12_G2MUL_PRECOMPILE_GAS, 256};
+}
+
+PrecompileAnalysis bls12_g2msm_analyze(bytes_view input, evmc_revision) noexcept
+{
+    if (input.empty() || input.size() % 288 != 0)
+        return {GasCostMax, 0};
+
+    static constexpr auto BLS12_G2MUL_PRECOMPILE_GAS = 45000;
+    return {bls_msm_cost(input.size() / 288, BLS12_G2MUL_PRECOMPILE_GAS), 256};
+}
+
+PrecompileAnalysis bls12_pairing_check_analyze(bytes_view input, evmc_revision) noexcept
+{
+    static constexpr auto PAIR_SIZE = 384;
+
+    if (input.empty() || input.size() % PAIR_SIZE != 0)
+        return {GasCostMax, 0};
+
+    const auto npairs = static_cast<int64_t>(input.size()) / PAIR_SIZE;
+
+    static constexpr auto BLS12_PAIRING_CHECK_BASE_FEE_PRECOMPILE_GAS = 65000;
+    static constexpr auto BLS12_PAIRING_CHECK_FEE_PRECOMPILE_GAS = 43000;
+    return {BLS12_PAIRING_CHECK_BASE_FEE_PRECOMPILE_GAS +
+                BLS12_PAIRING_CHECK_FEE_PRECOMPILE_GAS * npairs,
+        32};
+}
+
+PrecompileAnalysis bls12_map_fp_to_g1_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_MAP_FP_TO_G1_PRECOMPILE_GAS = 5500;
+    return {BLS12_MAP_FP_TO_G1_PRECOMPILE_GAS, 128};
+}
+
+PrecompileAnalysis bls12_map_fp2_to_g2_analyze(bytes_view, evmc_revision) noexcept
+{
+    static constexpr auto BLS12_MAP_FP2_TO_G2_PRECOMPILE_GAS = 75000;
+    return {BLS12_MAP_FP2_TO_G2_PRECOMPILE_GAS, 256};
 }
 
 ExecutionResult ecrecover_execute(const uint8_t* input, size_t input_size, uint8_t* output,
@@ -292,6 +383,155 @@ ExecutionResult blake2bf_execute(const uint8_t* input, [[maybe_unused]] size_t i
     return {EVMC_SUCCESS, sizeof(h)};
 }
 
+ExecutionResult point_evaluation_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    assert(output_size >= 64);
+    if (input_size != 192)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    const auto r = crypto::kzg_verify_proof(reinterpret_cast<const std::byte*>(&input[0]),
+        reinterpret_cast<const std::byte*>(&input[32]),
+        reinterpret_cast<const std::byte*>(&input[64]),
+        reinterpret_cast<const std::byte*>(&input[96]),
+        reinterpret_cast<const std::byte*>(&input[96 + 48]));
+
+    if (!r)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    // Return FIELD_ELEMENTS_PER_BLOB and BLS_MODULUS as padded 32 byte big endian values
+    // as required by the EIP-4844.
+    intx::be::unsafe::store(output, crypto::FIELD_ELEMENTS_PER_BLOB);
+    intx::be::unsafe::store(output + 32, crypto::BLS_MODULUS);
+    return {EVMC_SUCCESS, 64};
+}
+
+ExecutionResult bls12_g1add_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 256)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 128);
+
+    if (!crypto::bls::g1_add(output, &output[64], input, &input[64], &input[128], &input[192]))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 128};
+}
+
+ExecutionResult bls12_g1mul_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 160)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 128);
+
+    if (!crypto::bls::g1_mul(output, &output[64], input, &input[64], &input[128]))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 128};
+}
+
+ExecutionResult bls12_g1msm_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size % 160 != 0)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 128);
+
+    if (!crypto::bls::g1_msm(output, &output[64], input, input_size))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 128};
+}
+
+ExecutionResult bls12_g2add_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 512)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 256);
+
+    if (!crypto::bls::g2_add(output, &output[128], input, &input[128], &input[256], &input[384]))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 256};
+}
+
+ExecutionResult bls12_g2mul_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 288)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 256);
+
+    if (!crypto::bls::g2_mul(output, &output[128], input, &input[128], &input[256]))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 256};
+}
+
+ExecutionResult bls12_g2msm_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size % 288 != 0)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 256);
+
+    if (!crypto::bls::g2_msm(output, &output[128], input, input_size))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 256};
+}
+
+ExecutionResult bls12_pairing_check_execute(const uint8_t* input, size_t input_size,
+    uint8_t* output, [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size % 384 != 0)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 32);
+
+    if (!crypto::bls::pairing_check(output, input, input_size))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 32};
+}
+
+ExecutionResult bls12_map_fp_to_g1_execute(const uint8_t* input, size_t input_size, uint8_t* output,
+    [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 64)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 128);
+
+    if (!crypto::bls::map_fp_to_g1(output, &output[64], input))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 128};
+}
+
+ExecutionResult bls12_map_fp2_to_g2_execute(const uint8_t* input, size_t input_size,
+    uint8_t* output, [[maybe_unused]] size_t output_size) noexcept
+{
+    if (input_size != 128)
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    assert(output_size == 256);
+
+    if (!crypto::bls::map_fp2_to_g2(output, &output[128], input))
+        return {EVMC_PRECOMPILE_FAILURE, 0};
+
+    return {EVMC_SUCCESS, 256};
+}
+
 namespace
 {
 struct PrecompileTraits
@@ -312,7 +552,16 @@ inline constexpr auto traits = []() noexcept {
         {ecmul_analyze, ecmul_execute},
         {ecpairing_analyze, ecpairing_stub},
         {blake2bf_analyze, blake2bf_execute},
-        {point_evaluation_analyze, point_evaluation_stub},
+        {point_evaluation_analyze, point_evaluation_execute},
+        {bls12_g1add_analyze, bls12_g1add_execute},
+        {bls12_g1mul_analyze, bls12_g1mul_execute},
+        {bls12_g1msm_analyze, bls12_g1msm_execute},
+        {bls12_g2add_analyze, bls12_g2add_execute},
+        {bls12_g2mul_analyze, bls12_g2mul_execute},
+        {bls12_g2msm_analyze, bls12_g2msm_execute},
+        {bls12_pairing_check_analyze, bls12_pairing_check_execute},
+        {bls12_map_fp_to_g1_analyze, bls12_map_fp_to_g1_execute},
+        {bls12_map_fp2_to_g2_analyze, bls12_map_fp2_to_g2_execute},
     }};
 #ifdef EVMONE_PRECOMPILES_SILKPRE
     // tbl[static_cast<size_t>(PrecompileId::ecrecover)].execute = silkpre_ecrecover_execute;
@@ -346,6 +595,9 @@ bool is_precompile(evmc_revision rev, const evmc::address& addr) noexcept
         return false;
 
     if (rev < EVMC_CANCUN && id >= stdx::to_underlying(PrecompileId::since_cancun))
+        return false;
+
+    if (rev < EVMC_PRAGUE && id >= stdx::to_underlying(PrecompileId::since_prague))
         return false;
 
     return true;

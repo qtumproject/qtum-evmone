@@ -80,6 +80,12 @@ TEST_F(eof_validation, minimal_valid_EOF1_multiple_code_sections)
         EOFValidationError::success, "non_void_input_output");
 }
 
+TEST_F(eof_validation, minimal_valid_EOF1_multiple_container_sections)
+{
+    add_test_case("EF0001 010004 0200010001 0300010001 0300010001 040000 00 00800000 00 00 00",
+        EOFValidationError::data_section_missing, "no_data_section");
+}
+
 TEST_F(eof_validation, EOF1_types_section_missing)
 {
     add_test_case("EF0001 0200010001 00 FE", EOFValidationError::type_section_missing);
@@ -1217,7 +1223,6 @@ TEST_F(eof_validation, max_nested_containers_eofcreate_returncontract)
 // | ---------------------------- | ------ | ------ | ------ | -------------- |
 // | top-level initcode           | -      | -      | +      | +              |
 // | EOFCREATE                    | -      | -      | +      | +              |
-// | TXCREATE                     | -      | -      | +      | +              |
 // | top-level runtime            | +      | +      | +      | -              |
 // | RETURNCONTRACT               | +      | +      | +      | -              |
 // | EOFCREATE and RETURNCONTRACT | -      | -      | +      | -              |

@@ -7,6 +7,7 @@ add_executable(evmone-unittests)
 target_sources(
     evmone-unittests PRIVATE
     analysis_test.cpp
+    baseline_analysis_test.cpp
     blockchaintest_loader_test.cpp
     bytecode_test.cpp
     eof_validation_stack_test.cpp
@@ -47,6 +48,8 @@ target_sources(
     exportable_fixture.cpp
     instructions_test.cpp
     precompiles_blake2b_test.cpp
+    precompiles_bls_test.cpp
+    precompiles_kzg_test.cpp
     precompiles_ripemd160_test.cpp
     precompiles_sha256_test.cpp
     state_block_test.cpp

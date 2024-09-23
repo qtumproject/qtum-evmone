@@ -314,37 +314,6 @@ jobs:
       - test
       - package
 
-  release-windows-32bit:
-    executor: win/server-2022
-    environment:
-      CMAKE_BUILD_TYPE: Release
-      CMAKE_BUILD_PARALLEL_LEVEL: 4
-    steps:
-      - checkout
-      - checkout_submodules
-      - run:
-          name: "Setup environment (bash)"
-          shell: bash
-          command: |
-            echo 'export PATH=$PATH:"/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"' >> $BASH_ENV
-      - run:
-          name: 'Configure'
-          shell: powershell
-          command: |
-            $ErrorActionPreference = "Stop"
-            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
-            which cmake
-            cmake -S . -B ~/build -G Ninja -DCMAKE_INSTALL_PREFIX=C:\install -DEVMONE_TESTING=ON
-      - run:
-          name: 'Build'
-          shell: powershell
-          command: |
-            $ErrorActionPreference = "Stop"
-            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
-            cmake --build ~/build
-      - test
-      - package
-
   release-macos:
     executor: macos
     environment:
@@ -394,6 +363,23 @@ jobs:
           working_directory: ~/build
           command: >
             bin/evmone-blockchaintest ~/spec-tests/fixtures/blockchain_tests
+      - download_execution_spec_tests:
+          release: pectra-devnet-3@v1.5.0
+          fixtures_suffix: pectra-devnet-3
+      - run:
+          name: "Execution spec tests (develop, state_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/spec-tests/fixtures/state_tests
+          command: >
+            ~/build/bin/evmone-statetest
+            prague/eip2537_bls_12_381_precompiles
+      - run:
+          name: "Execution spec tests (develop, blockchain_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/spec-tests/fixtures/blockchain_tests
+          command: >
+            ~/build/bin/evmone-blockchaintest
+            prague/eip2935_historical_block_hashes_from_state
       - collect_coverage_gcc
       - upload_coverage:
           flags: execution_spec_tests
@@ -405,7 +391,7 @@ jobs:
     steps:
       - build
       - download_execution_spec_tests:
-          release: eip7692@v1.0.7
+          release: eip7692@v1.1.0
           fixtures_suffix: eip7692
       - run:
           name: "EOF pre-release execution spec tests (state_tests)"
@@ -433,7 +419,7 @@ jobs:
     steps:
       - build
       - download_execution_tests:
-          rev: v14.0
+          rev: v14.1
       - run:
           name: "State tests"
           working_directory: ~/build
@@ -442,6 +428,16 @@ jobs:
             ~/tests/GeneralStateTests 
             ~/tests/LegacyTests/Cancun/GeneralStateTests
             ~/tests/LegacyTests/Constantinople/GeneralStateTests
+      - run:
+          name: "EOF State tests"
+          working_directory: ~/build
+          command: |
+            bin/evmone-statetest ~/tests/EIPTests/StateTests/stEOF
+      - run:
+          name: "EOF validation tests"
+          working_directory: ~/build
+          command: >
+            bin/evmone-eoftest ~/tests/EOFTests
       - run:
           name: "Blockchain tests (GeneralStateTests)"
           working_directory: ~/build
@@ -464,23 +460,6 @@ jobs:
             bin/evmone-blockchaintest
             --gtest_filter='-*StateTests/stEOF/*.*:*StateTests/stEIP2537.*'
             ~/tests/EIPTests/BlockchainTests/
-      - download_execution_tests:
-          repo: ipsilon/tests
-          rev: eof-initcode-tests
-          legacy: false
-      - run:
-          name: "State tests (EOF)"
-          working_directory: ~/build
-          command: |
-            bin/evmone-statetest ~/tests/EIPTests/StateTests/stEOF
-      - run:
-          name: "EOF validation tests"
-          working_directory: ~/build
-          # TODO: Disabled tests:
-          #   efValidation.EOF1_embedded_container_:efValidation.EOF1_eofcreate_valid_:efValidation.EOF1_section_order_: unreferenced subcontainer
-          command: >
-            bin/evmone-eoftest ~/tests/EOFTests
-            --gtest_filter=-:efValidation.EOF1_embedded_container_:efValidation.EOF1_eofcreate_valid_:efValidation.EOF1_section_order_
       - collect_coverage_gcc
       - upload_coverage:
           flags: ethereum_tests
@@ -496,7 +475,7 @@ jobs:
           command: sudo apt-get -q update && sudo apt-get -qy install libgmp-dev
       - build
       - download_execution_tests:
-          rev: v14.0
+          rev: v14.1
           legacy: false
       - run:
           name: "State tests"
@@ -692,7 +671,6 @@ workflows:
           filters:
             tags:
               only: /.*/
-      - release-windows-32bit
       - release-macos:
           filters:
             tags:

@@ -201,23 +201,27 @@ std::optional<evmc_message> Host::prepare_message(evmc_message msg) noexcept
         msg.kind == EVMC_EOFCREATE)
     {
         auto& sender_acc = m_state.get(msg.sender);
-        const auto sender_nonce = sender_acc.nonce;
 
         // EIP-2681 (already checked for depth 0 during transaction validation).
-        if (sender_nonce == Account::NonceMax)
+        if (sender_acc.nonce == Account::NonceMax)
             return {};  // Light early exception.
 
         if (msg.depth != 0)
+        {
             m_state.journal_bump_nonce(msg.sender);
-        ++sender_acc.nonce;  // Bump sender nonce.
+            ++sender_acc.nonce;  // Bump sender nonce.
+        }
 
         if (msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2 || msg.kind == EVMC_EOFCREATE)
         {
             // Compute and set the address of the account being created.
             assert(msg.recipient == address{});
             assert(msg.code_address == address{});
+            // Nonce was already incremented, but creation calculation needs non-incremented value
+            assert(sender_acc.nonce != 0);
+            const auto creation_sender_nonce = sender_acc.nonce - 1;
             if (msg.kind == EVMC_CREATE)
-                msg.recipient = compute_create_address(msg.sender, sender_nonce);
+                msg.recipient = compute_create_address(msg.sender, creation_sender_nonce);
             else if (msg.kind == EVMC_CREATE2)
             {
                 msg.recipient = compute_create2_address(
@@ -256,9 +260,9 @@ std::optional<evmc_message> Host::prepare_message(evmc_message msg) noexcept
                         EOFValidationError::success)
                         return {};  // Light early exception.
 
-                    msg.recipient = compute_create_address(msg.sender, sender_nonce);
+                    msg.recipient = compute_create_address(msg.sender, creation_sender_nonce);
                 }
-                // EOFCREATE or TXCREATE
+                // EOFCREATE
                 else
                 {
                     const bytes_view initcontainer{msg.code, msg.code_size};
@@ -345,7 +349,7 @@ evmc::Result Host::create(const evmc_message& msg) noexcept
     {
         if (m_rev >= EVMC_PRAGUE)
         {
-            // Only EOFCREATE/TXCREATE/EOF-creation-tx is allowed to deploy code starting with EF.
+            // Only EOFCREATE/EOF-creation-tx is allowed to deploy code starting with EF.
             // It must be valid EOF, which was validated before execution.
             if (msg.kind != EVMC_EOFCREATE)
                 return evmc::Result{EVMC_CONTRACT_VALIDATION_FAILURE};
@@ -376,26 +380,34 @@ evmc::Result Host::execute_message(const evmc_message& msg) noexcept
             m_state.journal_create(msg.recipient, exists);
     }
 
-    assert(msg.kind != EVMC_CALL || evmc::address{msg.recipient} == msg.code_address);
-    auto* const dst_acc =
-        (msg.kind == EVMC_CALL) ? &m_state.touch(msg.recipient) : m_state.find(msg.code_address);
-
-    if (msg.kind == EVMC_CALL && !evmc::is_zero(msg.value))
+    if (msg.kind == EVMC_CALL)
     {
-        // Transfer value: sender → recipient.
-        // The sender's balance is already checked therefore the sender account must exist.
-        const auto value = intx::be::load<intx::uint256>(msg.value);
-        assert(m_state.get(msg.sender).balance >= value);
-        m_state.journal_balance_change(msg.sender, m_state.get(msg.sender).balance);
-        m_state.journal_balance_change(msg.recipient, dst_acc->balance);
-        m_state.get(msg.sender).balance -= value;
-        dst_acc->balance += value;
+        if (evmc::is_zero(msg.value))
+            m_state.touch(msg.recipient);
+        else
+        {
+            // We skip touching if we send value, because account cannot end up empty.
+            // It will either have value, or code that transfers this value out, or will be
+            // selfdestructed anyway.
+            auto& dst_acc = m_state.get_or_insert(msg.recipient);
+
+            // Transfer value: sender → recipient.
+            // The sender's balance is already checked therefore the sender account must exist.
+            const auto value = intx::be::load<intx::uint256>(msg.value);
+            assert(m_state.get(msg.sender).balance >= value);
+            m_state.journal_balance_change(msg.sender, m_state.get(msg.sender).balance);
+            m_state.journal_balance_change(msg.recipient, dst_acc.balance);
+            m_state.get(msg.sender).balance -= value;
+            dst_acc.balance += value;
+        }
     }
 
     if (is_precompile(m_rev, msg.code_address))
         return call_precompile(m_rev, msg);
 
-    const auto code = dst_acc != nullptr ? bytes_view{dst_acc->code} : bytes_view{};
+    // In case msg.recipient == msg.code_address, this is the second lookup of the same address.
+    const auto* const code_acc = m_state.find(msg.code_address);
+    const auto code = code_acc != nullptr ? bytes_view{code_acc->code} : bytes_view{};
     return m_vm.execute(*this, m_rev, msg, code.data(), code.size());
 }
 
@@ -449,8 +461,6 @@ evmc_tx_context Host::get_tx_context() const noexcept
         intx::be::store<uint256be>(m_block.blob_base_fee),
         m_tx.blob_hashes.data(),
         m_tx.blob_hashes.size(),
-        m_tx_initcodes.data(),
-        m_tx_initcodes.size(),
     };
 }
 

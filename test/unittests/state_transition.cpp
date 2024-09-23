@@ -180,6 +180,7 @@ void state_transition::export_state_test(
     jenv["currentGasLimit"] = hex0x(block.gas_limit);
     jenv["currentCoinbase"] = hex0x(block.coinbase);
     jenv["currentBaseFee"] = hex0x(block.base_fee);
+    jenv["currentRandom"] = hex0x(block.prev_randao);
 
     jt["pre"] = to_json(pre);
 
@@ -200,16 +201,13 @@ void state_transition::export_state_test(
         jtx["maxPriorityFeePerGas"] = hex0x(tx.max_priority_gas_price);
     }
 
-    if (tx.type == Transaction::Type::initcodes)
-    {
-        auto& jinitcodes = jtx["initcodes"] = json::json::array();
-        for (const auto& initcode : tx.initcodes)
-            jinitcodes.emplace_back(hex0x(initcode));
-    }
-
     jtx["data"][0] = hex0x(tx.data);
     jtx["gasLimit"][0] = hex0x(tx.gas_limit);
     jtx["value"][0] = hex0x(tx.value);
+
+    // Force `accessLists` output even if empty.
+    if (tx.type >= Transaction::Type::access_list)
+        jtx["accessLists"][0] = json::json::array();
 
     if (!tx.access_list.empty())
     {

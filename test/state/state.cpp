@@ -16,8 +16,6 @@ namespace evmone::state
 {
 namespace
 {
-constexpr auto MAX_INITCODE_COUNT = 256;
-
 inline constexpr int64_t num_words(size_t size_in_bytes) noexcept
 {
     return static_cast<int64_t>((size_in_bytes + 31) / 32);
@@ -44,14 +42,6 @@ int64_t compute_access_list_cost(const AccessList& access_list) noexcept
     return cost;
 }
 
-int64_t compute_initcode_list_cost(evmc_revision rev, std::span<const bytes> initcodes) noexcept
-{
-    int64_t cost = 0;
-    for (const auto& initcode : initcodes)
-        cost += compute_tx_data_cost(rev, initcode);
-    return cost;
-}
-
 int64_t compute_tx_intrinsic_cost(evmc_revision rev, const Transaction& tx) noexcept
 {
     static constexpr auto call_tx_cost = 21000;
@@ -62,7 +52,7 @@ int64_t compute_tx_intrinsic_cost(evmc_revision rev, const Transaction& tx) noex
         is_create && rev >= EVMC_SHANGHAI ? initcode_word_cost * num_words(tx.data.size()) : 0;
     const auto tx_cost = is_create && rev >= EVMC_HOMESTEAD ? create_tx_cost : call_tx_cost;
     return tx_cost + compute_tx_data_cost(rev, tx.data) + compute_access_list_cost(tx.access_list) +
-           compute_initcode_list_cost(rev, tx.initcodes) + initcode_cost;
+           initcode_cost;
 }
 
 evmc_message build_message(
@@ -283,28 +273,12 @@ std::variant<int64_t, std::error_code> validate_transaction(const Account& sende
             return make_error_code(BLOB_GAS_LIMIT_EXCEEDED);
         break;
 
-    case Transaction::Type::initcodes:
-        if (rev < EVMC_OSAKA)
-            return make_error_code(TX_TYPE_NOT_SUPPORTED);
-        if (tx.initcodes.size() > MAX_INITCODE_COUNT)
-            return make_error_code(INIT_CODE_COUNT_LIMIT_EXCEEDED);
-        if (tx.initcodes.empty())
-            return make_error_code(INIT_CODE_COUNT_ZERO);
-        if (std::any_of(tx.initcodes.begin(), tx.initcodes.end(),
-                [](const bytes& v) { return v.size() > MAX_INITCODE_SIZE; }))
-            return make_error_code(INIT_CODE_SIZE_LIMIT_EXCEEDED);
-        if (std::any_of(
-                tx.initcodes.begin(), tx.initcodes.end(), [](const bytes& v) { return v.empty(); }))
-            return make_error_code(INIT_CODE_EMPTY);
-        break;
-
     default:;
     }
 
     switch (tx.type)
     {
     case Transaction::Type::blob:
-    case Transaction::Type::initcodes:
     case Transaction::Type::eip1559:
         if (rev < EVMC_LONDON)
             return make_error_code(TX_TYPE_NOT_SUPPORTED);
@@ -379,40 +353,6 @@ void delete_empty_accounts(State& state)
 }
 }  // namespace
 
-void system_call(State& state, const BlockInfo& block, evmc_revision rev, evmc::VM& vm)
-{
-    static constexpr auto SystemAddress = 0xfffffffffffffffffffffffffffffffffffffffe_address;
-    static constexpr auto BeaconRootsAddress = 0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02_address;
-
-    if (rev >= EVMC_CANCUN)
-    {
-        if (const auto acc = state.find(BeaconRootsAddress); acc != nullptr)
-        {
-            const evmc_message msg{
-                .kind = EVMC_CALL,
-                .gas = 30'000'000,
-                .recipient = BeaconRootsAddress,
-                .sender = SystemAddress,
-                .input_data = block.parent_beacon_block_root.bytes,
-                .input_size = sizeof(block.parent_beacon_block_root),
-            };
-
-            const Transaction empty_tx{};
-            Host host{rev, vm, state, block, empty_tx};
-            const auto& code = acc->code;
-            [[maybe_unused]] const auto res = vm.execute(host, rev, msg, code.data(), code.size());
-            assert(res.status_code == EVMC_SUCCESS);
-            assert(acc->access_status == EVMC_ACCESS_COLD);
-
-            // Reset storage status.
-            for (auto& [_, val] : acc->storage)
-            {
-                val.access_status = EVMC_ACCESS_COLD;
-                val.original = val.current;
-            }
-        }
-    }
-}
 
 void finalize(State& state, evmc_revision rev, const address& coinbase,
     std::optional<uint64_t> block_reward, std::span<const Ommer> ommers,
@@ -461,6 +401,9 @@ std::variant<TransactionReceipt, std::error_code> transition(State& state, const
     // Once the transaction is valid, create new sender account.
     // The account won't be empty because its nonce will be bumped.
     auto& sender_acc = (sender_ptr != nullptr) ? *sender_ptr : state.insert(tx.sender);
+
+    assert(sender_acc.nonce < Account::NonceMax);  // Checked in transaction validation
+    ++sender_acc.nonce;                            // Bump sender nonce.
 
     const auto execution_gas_limit = get<int64_t>(validation_result);
 
@@ -654,12 +597,6 @@ std::variant<TransactionReceipt, std::error_code> transition(State& state, const
         return "SenderNotEOA";
     case INIT_CODE_SIZE_LIMIT_EXCEEDED:
         return "TR_InitCodeLimitExceeded";
-    case INIT_CODE_EMPTY:
-        return "TR_InitCodeEmpty";
-    case INIT_CODE_COUNT_LIMIT_EXCEEDED:
-        return "TR_InitCodeCountLimitExceeded";
-    case INIT_CODE_COUNT_ZERO:
-        return "TR_InitCodeCountZero";
     case CREATE_BLOB_TX:
         return "TR_BLOBCREATE";
     case EMPTY_BLOB_HASHES_LIST:

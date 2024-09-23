@@ -75,7 +75,11 @@ constexpr void validate_traits_of() noexcept
 
     // since
     constexpr auto expected_rev = get_revision_defined_in(Op);
-    static_assert(tr.since.has_value() ? *tr.since == expected_rev : expected_rev == unspecified);
+    constexpr auto since =
+        tr.since.has_value() ?
+            tr.eof_since.has_value() ? std::min(*tr.since, *tr.eof_since) : *tr.since :
+            tr.eof_since;
+    static_assert(since.has_value() ? *since == expected_rev : expected_rev == unspecified);
 }
 
 template <std::size_t... Ops>
@@ -133,7 +137,6 @@ constexpr bool instruction_only_in_evmone(evmc_revision rev, Opcode op) noexcept
     case OP_EXTDELEGATECALL:
     case OP_EXTSTATICCALL:
     case OP_EOFCREATE:
-    case OP_TXCREATE:
     case OP_RETURNCONTRACT:
         return true;
     default:

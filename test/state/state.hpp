@@ -196,9 +196,6 @@ struct Transaction
         /// The typed blob transaction (with array of blob hashes).
         /// Introduced by EIP-4844 https://eips.ethereum.org/EIPS/eip-4844.
         blob = 3,
-
-        /// The typed transaction with initcode list.
-        initcodes = 4,
     };
 
     /// Returns amount of blob gas used by this transaction
@@ -224,7 +221,6 @@ struct Transaction
     intx::uint256 r;
     intx::uint256 s;
     uint8_t v = 0;
-    std::vector<bytes> initcodes;
 };
 
 struct Log
@@ -278,12 +274,6 @@ void finalize(State& state, evmc_revision rev, const address& coinbase,
 std::variant<int64_t, std::error_code> validate_transaction(const Account& sender_acc,
     const BlockInfo& block, const Transaction& tx, evmc_revision rev, int64_t block_gas_left,
     int64_t blob_gas_left) noexcept;
-
-/// Performs the system call.
-///
-/// Executes code at pre-defined accounts from the system sender (0xff...fe).
-/// The sender's nonce is not increased.
-void system_call(State& state, const BlockInfo& block, evmc_revision rev, evmc::VM& vm);
 
 /// Defines how to RLP-encode a Transaction.
 [[nodiscard]] bytes rlp_encode(const Transaction& tx);
