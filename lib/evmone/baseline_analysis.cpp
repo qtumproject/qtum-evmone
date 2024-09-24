@@ -6,6 +6,9 @@
 #include "eof.hpp"
 #include "instructions.hpp"
 #include <memory>
+#ifdef QTUM_BUILD
+#include "compat.hpp"
+#endif
 
 namespace evmone::baseline
 {
@@ -13,28 +16,6 @@ static_assert(std::is_move_constructible_v<CodeAnalysis>);
 static_assert(std::is_move_assignable_v<CodeAnalysis>);
 static_assert(!std::is_copy_constructible_v<CodeAnalysis>);
 static_assert(!std::is_copy_assignable_v<CodeAnalysis>);
-
-#ifdef QTUM_BUILD
-// GCC 10 doesn't support std::make_unique_for_overwrite, support starts from GCC 11.1
-// C++20 make_unique_for_overwrite implementation
-template<class T>
-    requires (!std::is_array_v<T>)
-std::unique_ptr<T> make_unique_for_overwrite()
-{
-    return std::unique_ptr<T>(new T);
-}
- 
-template<class T>
-    requires std::is_unbounded_array_v<T>
-std::unique_ptr<T> make_unique_for_overwrite(std::size_t n)
-{
-    return std::unique_ptr<T>(new std::remove_extent_t<T>[n]);
-}
- 
-template<class T, class... Args>
-    requires std::is_bounded_array_v<T>
-void make_unique_for_overwrite(Args&&...) = delete;
-#endif
 
 namespace
 {
@@ -66,7 +47,7 @@ std::unique_ptr<uint8_t[]> pad_code(bytes_view code)
     constexpr auto padding = 32 + 1;
 
 #ifdef QTUM_BUILD
-    auto padded_code = evmone::baseline::make_unique_for_overwrite<uint8_t[]>(code.size() + padding);
+    auto padded_code = compat::make_unique_for_overwrite<uint8_t[]>(code.size() + padding);
 #else
     auto padded_code = std::make_unique_for_overwrite<uint8_t[]>(code.size() + padding);
 #endif

@@ -3,6 +3,9 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#ifdef QTUM_BUILD
+#include "../evmone/compat.hpp"
+#endif
 
 namespace evmone::crypto::bls
 {
@@ -243,7 +246,11 @@ void store(uint8_t _rx[128], const blst_fp2& _x) noexcept
     }
 
     const auto scratch_size = blst_p1s_mult_pippenger_scratch_sizeof(npoints) / sizeof(limb_t);
+#ifdef QTUM_BUILD
+    const auto scratch_space = compat::make_unique_for_overwrite<limb_t[]>(scratch_size);
+#else
     const auto scratch_space = std::make_unique_for_overwrite<limb_t[]>(scratch_size);
+#endif
     blst_p1 out;
     blst_p1s_mult_pippenger(
         &out, p1_affine_ptrs.data(), npoints, scalars_ptrs.data(), 256, scratch_space.get());
@@ -308,7 +315,11 @@ void store(uint8_t _rx[128], const blst_fp2& _x) noexcept
     }
 
     const auto scratch_size = blst_p2s_mult_pippenger_scratch_sizeof(npoints) / sizeof(limb_t);
+#ifdef QTUM_BUILD
+    const auto scratch_space = compat::make_unique_for_overwrite<limb_t[]>(scratch_size);
+#else
     const auto scratch_space = std::make_unique_for_overwrite<limb_t[]>(scratch_size);
+#endif
     blst_p2 out;
     blst_p2s_mult_pippenger(
         &out, p2_affine_ptrs.data(), npoints, scalars_ptrs.data(), 256, scratch_space.get());
@@ -370,7 +381,11 @@ void store(uint8_t _rx[128], const blst_fp2& _x) noexcept
     auto has_inf = false;
     blst_fp12 acc = *blst_fp12_one();
 
+#ifdef QTUM_BUILD
+    const auto Qlines = compat::make_unique_for_overwrite<blst_fp6[]>(68);
+#else
     const auto Qlines = std::make_unique_for_overwrite<blst_fp6[]>(68);
+#endif
 
     for (size_t i = 0; i < npairs; ++i)
     {
