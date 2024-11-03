@@ -52,9 +52,16 @@ TEST(json_loader, int64_t)
         from_json<int64_t>(basic_json("9223372036854775807")), std::numeric_limits<int64_t>::max());
     EXPECT_EQ(from_json<int64_t>(basic_json("-9223372036854775808")),
         std::numeric_limits<int64_t>::min());
-    EXPECT_THROW(from_json<int64_t>(basic_json("0xffffffffffffffff")), std::out_of_range);
-    EXPECT_THROW(from_json<int64_t>(basic_json("9223372036854775808")), std::out_of_range);
-    EXPECT_THROW(from_json<int64_t>(basic_json("-9223372036854775809")), std::out_of_range);
+
+    // Unfortunate conversion results:
+    EXPECT_EQ(from_json<int64_t>(basic_json("0xffffffffffffffff")), int64_t{-1});
+    EXPECT_EQ(
+        from_json<int64_t>(basic_json("9223372036854775808")), std::numeric_limits<int64_t>::min());
+    EXPECT_EQ(from_json<int64_t>(basic_json("-9223372036854775809")),
+        std::numeric_limits<int64_t>::max());
+
+    EXPECT_THROW(from_json<uint64_t>(basic_json("0x10000000000000000")), std::out_of_range);
+    EXPECT_THROW(from_json<uint64_t>(basic_json("18446744073709551616")), std::out_of_range);
 
     // Octal is also supported.
     EXPECT_EQ(from_json<int64_t>(basic_json("0777")), 0777);
@@ -67,14 +74,39 @@ TEST(json_loader, int64_t)
 TEST(statetest_loader, load_empty_test)
 {
     std::istringstream s{"{}"};
-    EXPECT_THROW(load_state_test(s), std::invalid_argument);
+    EXPECT_EQ(load_state_tests(s).size(), 0);
+}
+
+TEST(statetest_loader, load_multi_test)
+{
+    std::istringstream s{R"({
+      "T1": {
+        "pre": {},
+        "transaction": {"gasPrice": "","sender": "","to": "","data": null,
+          "gasLimit": "0","value": null,"nonce" : "0"},
+        "post": {},
+        "env": {"currentNumber": "0","currentTimestamp": "0",
+          "currentGasLimit": "0","currentCoinbase": ""}
+      },
+      "T2": {
+        "pre": {},
+        "transaction": {"gasPrice": "","sender": "","to": "","data": null,
+          "gasLimit": "0","value": null,"nonce" : "0"},
+        "post": {},
+        "env": {"currentNumber": "0","currentTimestamp": "0",
+          "currentGasLimit": "0","currentCoinbase": ""}
+      }
+    })"};
+    const auto tests = load_state_tests(s);
+    ASSERT_EQ(tests.size(), 2);
+    EXPECT_EQ(tests[0].name, "T1");
+    EXPECT_EQ(tests[1].name, "T2");
 }
 
 TEST(statetest_loader, load_minimal_test)
 {
     std::istringstream s{R"({
         "test": {
-            "_info": {},
             "pre": {},
             "transaction": {
                 "gasPrice": "",
@@ -82,7 +114,8 @@ TEST(statetest_loader, load_minimal_test)
                 "to": "",
                 "data": null,
                 "gasLimit": "0",
-                "value": null
+                "value": null,
+                "nonce" : "0"
             },
             "post": {},
             "env": {
@@ -93,16 +126,16 @@ TEST(statetest_loader, load_minimal_test)
             }
         }
     })"};
-    const StateTransitionTest st = load_state_test(s);
+    const auto st = std::move(load_state_tests(s).at(0));
     // TODO: should add some comparison operator to State, BlockInfo, AccessList
-    EXPECT_EQ(st.pre_state.get_accounts().size(), 0);
+    EXPECT_EQ(st.pre_state.size(), 0);
     EXPECT_EQ(st.block.number, 0);
     EXPECT_EQ(st.block.timestamp, 0);
     EXPECT_EQ(st.block.gas_limit, 0);
     EXPECT_EQ(st.block.coinbase, address{});
     EXPECT_EQ(st.block.prev_randao, bytes32{});
     EXPECT_EQ(st.block.base_fee, 0);
-    EXPECT_EQ(st.multi_tx.kind, test::TestMultiTransaction::Kind::legacy);
+    EXPECT_EQ(st.multi_tx.type, test::TestMultiTransaction::Type::legacy);
     EXPECT_EQ(st.multi_tx.data, bytes{});
     EXPECT_EQ(st.multi_tx.gas_limit, 0);
     EXPECT_EQ(st.multi_tx.max_gas_price, 0);
@@ -110,8 +143,9 @@ TEST(statetest_loader, load_minimal_test)
     EXPECT_EQ(st.multi_tx.sender, address{});
     EXPECT_EQ(st.multi_tx.to, std::nullopt);
     EXPECT_EQ(st.multi_tx.value, 0);
+    EXPECT_EQ(st.multi_tx.nonce, 0);
     EXPECT_EQ(st.multi_tx.access_list.size(), 0);
-    EXPECT_EQ(st.multi_tx.chain_id, 0);
+    EXPECT_EQ(st.multi_tx.chain_id, 1);
     EXPECT_EQ(st.multi_tx.nonce, 0);
     EXPECT_EQ(st.multi_tx.r, 0);
     EXPECT_EQ(st.multi_tx.s, 0);
@@ -125,23 +159,29 @@ TEST(statetest_loader, load_minimal_test)
     EXPECT_EQ(st.input_labels.size(), 0);
 }
 
-TEST(statetest_loader, validate_deployed_code_test)
+TEST(statetest_loader, validate_state_invalid_eof)
 {
-    {
-        state::State state;
-        state.insert(0xadd4_address, {.code = "EF0001010000020001000103000100FEDA"_hex});
-        EXPECT_THAT([&] { validate_deployed_code(state, EVMC_CANCUN); },
-            ThrowsMessage<std::invalid_argument>(
-                "EOF container at 0x000000000000000000000000000000000000add4 is invalid: "
-                "zero_section_size"));
-    }
+    TestState state{{0xadd4_address, {.code = "EF0001010000020001000103000100FEDA"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_PRAGUE); },
+        ThrowsMessage<std::invalid_argument>(
+            "EOF container at 0x000000000000000000000000000000000000add4 is invalid: "
+            "zero_section_size"));
+}
 
-    {
-        state::State state;
-        state.insert(0xadd4_address, {.code = "EF00"_hex});
-        EXPECT_THAT([&] { validate_deployed_code(state, EVMC_SHANGHAI); },
-            ThrowsMessage<std::invalid_argument>(
-                "code at 0x000000000000000000000000000000000000add4 "
-                "starts with 0xEF00 in Shanghai"));
-    }
+TEST(statetest_loader, validate_state_unexpected_eof)
+{
+    TestState state{{0xadd4_address, {.code = "EF00"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_CANCUN); },
+        ThrowsMessage<std::invalid_argument>(
+            "unexpected code with EOF prefix at 0x000000000000000000000000000000000000add4"));
+}
+
+TEST(statetest_loader, validate_state_zero_storage_slot)
+{
+    TestState state{{0xadd4_address, {.storage = {{0x01_bytes32, 0x00_bytes32}}}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_PRAGUE); },
+        ThrowsMessage<std::invalid_argument>(
+            "account 0x000000000000000000000000000000000000add4 contains invalid zero-value "
+            "storage entry "
+            "0x0000000000000000000000000000000000000000000000000000000000000001"));
 }

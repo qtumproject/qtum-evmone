@@ -69,6 +69,8 @@ enum Opcode : uint8_t
     OP_CHAINID = 0x46,
     OP_SELFBALANCE = 0x47,
     OP_BASEFEE = 0x48,
+    OP_BLOBHASH = 0x49,
+    OP_BLOBBASEFEE = 0x4a,
 
     OP_POP = 0x50,
     OP_MLOAD = 0x51,
@@ -82,10 +84,9 @@ enum Opcode : uint8_t
     OP_MSIZE = 0x59,
     OP_GAS = 0x5a,
     OP_JUMPDEST = 0x5b,
-    OP_RJUMP = 0x5c,
-    OP_RJUMPI = 0x5d,
-    OP_RJUMPV = 0x5e,
-
+    OP_TLOAD = 0x5c,
+    OP_TSTORE = 0x5d,
+    OP_MCOPY = 0x5e,
     OP_PUSH0 = 0x5f,
     OP_PUSH1 = 0x60,
     OP_PUSH2 = 0x61,
@@ -157,11 +158,24 @@ enum Opcode : uint8_t
     OP_LOG3 = 0xa3,
     OP_LOG4 = 0xa4,
 
-    OP_CALLF = 0xb0,
-    OP_RETF = 0xb1,
+    OP_DATALOAD = 0xd0,
+    OP_DATALOADN = 0xd1,
+    OP_DATASIZE = 0xd2,
+    OP_DATACOPY = 0xd3,
 
-    OP_DUPN = 0xb5,
-    OP_SWAPN = 0xb6,
+    OP_RJUMP = 0xe0,
+    OP_RJUMPI = 0xe1,
+    OP_RJUMPV = 0xe2,
+    OP_CALLF = 0xe3,
+    OP_RETF = 0xe4,
+    OP_JUMPF = 0xe5,
+
+    OP_DUPN = 0xe6,
+    OP_SWAPN = 0xe7,
+    OP_EXCHANGE = 0xe8,
+
+    OP_EOFCREATE = 0xec,
+    OP_RETURNCONTRACT = 0xee,
 
     OP_CREATE = 0xf0,
     OP_CALL = 0xf1,
@@ -169,8 +183,12 @@ enum Opcode : uint8_t
     OP_RETURN = 0xf3,
     OP_DELEGATECALL = 0xf4,
     OP_CREATE2 = 0xf5,
+    OP_RETURNDATALOAD = 0xf7,
 
+    OP_EXTCALL = 0xf8,
+    OP_EXTDELEGATECALL = 0xf9,
     OP_STATICCALL = 0xfa,
+    OP_EXTSTATICCALL = 0xfb,
 
     OP_REVERT = 0xfd,
     OP_INVALID = 0xfe,

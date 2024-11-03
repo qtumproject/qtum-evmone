@@ -17,10 +17,10 @@ using evmc::bytes32;
 struct StorageValue
 {
     /// The current value.
-    bytes32 current = {};
+    bytes32 current;
 
     /// The original value.
-    bytes32 original = {};
+    bytes32 original;
 
     evmc_access_status access_status = EVMC_ACCESS_COLD;
 };
@@ -35,13 +35,15 @@ struct Account
     uint64_t nonce = 0;
 
     /// The account balance.
-    intx::uint256 balance = {};
+    intx::uint256 balance;
 
     /// The account storage map.
-    std::unordered_map<bytes32, StorageValue> storage = {};
+    std::unordered_map<bytes32, StorageValue> storage;
+
+    std::unordered_map<bytes32, bytes32> transient_storage;
 
     /// The account code.
-    bytes code = {};
+    bytes code;
 
     /// The account has been destructed and should be erased at the end of of a transaction.
     bool destructed = false;
@@ -49,7 +51,13 @@ struct Account
     /// The account should be erased if it is empty at the end of a transaction.
     /// This flag means the account has been "touched" as defined in EIP-161
     /// or it is a newly created temporary account.
-    bool erasable = false;
+    ///
+    /// Yellow Paper uses term "delete" but it is a keyword in C++ while
+    /// the term "erase" is used for deleting objects from C++ collections.
+    bool erase_if_empty = false;
+
+    /// The account has been created in the current transaction.
+    bool just_created = false;
 
     evmc_access_status access_status = EVMC_ACCESS_COLD;
 

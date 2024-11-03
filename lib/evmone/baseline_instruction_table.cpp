@@ -9,44 +9,29 @@ namespace evmone::baseline
 {
 namespace
 {
-constexpr auto common_cost_tables = []() noexcept {
+consteval auto build_cost_tables(bool eof) noexcept
+{
     std::array<CostTable, EVMC_MAX_REVISION + 1> tables{};
     for (size_t r = EVMC_FRONTIER; r <= EVMC_MAX_REVISION; ++r)
     {
         auto& table = tables[r];
-        for (size_t i = 0; i < table.size(); ++i)
+        for (size_t op = 0; op < table.size(); ++op)
         {
-            table[i] = instr::gas_costs[r][i];  // Include instr::undefined in the table.
+            const auto& tr = instr::traits[op];
+            const auto since = eof ? tr.eof_since : tr.since;
+            table[op] = (since && r >= *since) ? instr::gas_costs[r][op] : instr::undefined;
         }
     }
     return tables;
-}();
+}
 
-constexpr auto legacy_cost_tables = []() noexcept {
-    auto tables = common_cost_tables;
-    tables[EVMC_CANCUN][OP_RJUMP] = instr::undefined;
-    tables[EVMC_CANCUN][OP_RJUMPI] = instr::undefined;
-    tables[EVMC_CANCUN][OP_RJUMPV] = instr::undefined;
-    tables[EVMC_CANCUN][OP_CALLF] = instr::undefined;
-    tables[EVMC_CANCUN][OP_RETF] = instr::undefined;
-    return tables;
-}();
-
-constexpr auto eof_cost_tables = []() noexcept {
-    auto tables = common_cost_tables;
-    tables[EVMC_CANCUN][OP_JUMP] = instr::undefined;
-    tables[EVMC_CANCUN][OP_JUMPI] = instr::undefined;
-    tables[EVMC_CANCUN][OP_PC] = instr::undefined;
-    tables[EVMC_CANCUN][OP_CALLCODE] = instr::undefined;
-    tables[EVMC_CANCUN][OP_SELFDESTRUCT] = instr::undefined;
-    return tables;
-}();
-
+constexpr auto LEGACY_COST_TABLES = build_cost_tables(false);
+constexpr auto EOF_COST_TABLES = build_cost_tables(true);
 }  // namespace
 
 const CostTable& get_baseline_cost_table(evmc_revision rev, uint8_t eof_version) noexcept
 {
-    const auto& tables = (eof_version == 0) ? legacy_cost_tables : eof_cost_tables;
+    const auto& tables = (eof_version == 0) ? LEGACY_COST_TABLES : EOF_COST_TABLES;
     return tables[rev];
 }
 }  // namespace evmone::baseline

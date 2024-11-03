@@ -1,37 +1,38 @@
 version: 2.1
 orbs:
+  codecov: codecov/codecov@4.1.0
   win: circleci/windows@5.0
 
 executors:
   lint:
     docker:
-      - image: ethereum/cpp-build-env:19-lint
+      - image: ethereum/cpp-build-env:22-lint
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-gcc-latest:
     docker:
-      - image: ethereum/cpp-build-env:19-gcc-12
+      - image: ethereum/cpp-build-env:22-gcc-14
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-gcc-multilib:
     docker:
-      - image: ethereum/cpp-build-env:19-gcc-12-multilib
+      - image: ethereum/cpp-build-env:22-gcc-14-multilib
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
-  blockchain-tests:
-    docker:
-      - image: ethereum/cpp-build-env:19-gcc-12
-    resource_class: xlarge
-    environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 8
   linux-clang-xlarge:
     docker:
-      - image: ethereum/cpp-build-env:19-clang-15
+      - image: ethereum/cpp-build-env:22-clang-18
     resource_class: xlarge
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 8
+  linux-clang-2xlarge:
+    docker:
+      - image: ethereum/cpp-build-env:21-clang-17
+    resource_class: 2xlarge
+    environment:
+      CMAKE_BUILD_PARALLEL_LEVEL: 16
   linux-gcc-min:
     docker:
       - image: ethereum/cpp-build-env:17-gcc-11
@@ -40,12 +41,12 @@ executors:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-clang-latest:
     docker:
-      - image: ethereum/cpp-build-env:19-clang-15
+      - image: ethereum/cpp-build-env:22-clang-18
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-clang-min:
     docker:
-      - image: ethereum/cpp-build-env:18-clang-13
+      - image: ethereum/cpp-build-env:19-clang-15
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
@@ -56,15 +57,15 @@ executors:
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   macos:
-    resource_class: macos.x86.medium.gen2
+    resource_class: macos.m1.large.gen1
     macos:
-      xcode: 14.3.0
+      xcode: 15.4.0
     environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 4
+      CMAKE_BUILD_PARALLEL_LEVEL: 8
   macos-xcode-min:
-    resource_class: macos.x86.medium.gen2
+    resource_class: macos.m1.medium.gen1
     macos:
-      xcode: 13.4.1
+      xcode: 15.0.0
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
 
@@ -80,82 +81,69 @@ commands:
           command: |
             curl -L https://github.com/Kitware/CMake/releases/download/v<<parameters.version>>/cmake-<<parameters.version>>-linux-x86_64.tar.gz | sudo tar -xz --strip=1
 
+  install_riscv_toolchain:
+    steps:
+      - run:
+          name: "Install RISC-V Toolchain"
+          working_directory: /usr/local
+          command: |
+            curl -L https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2023.07.07/riscv32-glibc-ubuntu-22.04-llvm-nightly-2023.07.07-nightly.tar.gz | sudo tar -xz
+
   checkout_submodules:
     steps:
       - run:
           name: "Update submodules"
           command: git submodule update --init --recursive
 
-  build_silkworm:
-    parameters:
-      branch:
-        type: string
-        default: master
-      commit:
-        type: string
-    steps:
-      - run:
-          # Fix fixes the cache restore step in case the silkworm dir does not exist
-          name: "Make Silkworm dir"
-          command: mkdir -p ~/silkworm
-      - restore_cache:
-          name: "Restore Silkworm cache (<<parameters.branch>>-<<parameters.commit>>)"
-          key: &silkworm-cache-key silkworm-v2-<<parameters.branch>>-<<parameters.commit>>
-      - run:
-          name: "Check Silkworm cache"
-          command: |
-            if [ -f ~/silkworm/consensus ]; then
-              echo 'Cached Silkworm binary available - skip build.'
-            else
-              echo 'export SILKWORM_BUILD=true' >> $BASH_ENV
-            fi
-      - run:
-          name: "Install build dependencies"
-          command: |
-            sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends binutils m4 texinfo
-      - run:
-          name: "Checkout Silkworm"
-          working_directory: ~/silkworm/src
-          command: |
-            [ "$SILKWORM_BUILD" = true ] || exit 0
-            git clone --no-checkout --single-branch https://github.com/torquem-ch/silkworm.git . --branch <<parameters.branch>>
-            git checkout <<parameters.commit>>
-            git submodule update --init --recursive --progress
-      - run:
-          name: "Configure Silkworm"
-          working_directory: ~/silkworm
-          command: |
-            [ "$SILKWORM_BUILD" = true ] || exit 0
-            cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DHUNTER_CONFIGURATION_TYPES=Release -DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(pwd)
-      - run:
-          name: "Build Silkworm cmd/consensus"
-          working_directory: ~/silkworm
-          command: |
-            [ "$SILKWORM_BUILD" = true ] || exit 0
-            cmake --build build --target consensus
-      - save_cache:
-          name: "Save Silkworm cache"
-          key: *silkworm-cache-key
-          paths:
-            - ~/silkworm/consensus
-
   download_execution_tests:
     parameters:
+      repo:
+        type: string
+        default: "ethereum/tests"
       rev:
         type: string
         default: develop
       commit:
         type: string
         default: ""
+      legacy:
+        description: "Download also legacy tests"
+        type: boolean
+        default: true
     steps:
       - run:
           name: "Download execution tests: <<parameters.rev>> <<parameters.commit>>"
           working_directory: ~/tests
           command: |
-            git clone --no-checkout --depth=250 --single-branch https://github.com/ethereum/tests . --branch <<parameters.rev>>
+            find . -delete
+            git clone --no-checkout --depth=100 --single-branch https://github.com/<<parameters.repo>> . --branch <<parameters.rev>>
             <<#parameters.rev>>git checkout <<parameters.rev>><</parameters.rev>>
             <<#parameters.commit>>git checkout <<parameters.commit>><</parameters.commit>>
-            git submodule update --init --recursive --depth=1 --progress
+      - when:
+          condition: <<parameters.legacy>>
+          steps:
+            - run:
+                name: "Download legacy execution tests (git submodule)"
+                working_directory: ~/tests
+                command: git submodule update --init --recursive --depth=1 --progress
+
+  download_execution_spec_tests:
+    parameters:
+      repo:
+        type: string
+        default: ethereum/execution-spec-tests
+      release:
+        type: string
+      fixtures_suffix:
+        type: string
+        default: stable
+    steps:
+      - run:
+          name: "Download execution-spec-tests: <<parameters.release>>"
+          working_directory: ~/spec-tests
+          command: |
+            curl -L https://github.com/<<parameters.repo>>/releases/download/<<parameters.release>>/fixtures_<<parameters.fixtures_suffix>>.tar.gz | tar -xz
+            ls -l
 
   build:
     description: "Build"
@@ -221,11 +209,10 @@ commands:
       - run:
           name: "Collect coverage data (GCC)"
           working_directory: ~/build
+          # Use coveralls to eliminate branch stats (they need more work)
           command: |
-            lcov --capture --directory . --output-file coverage.lcov --exclude='/usr/*' --exclude="$HOME/.hunter/*" --exclude="$PWD/_deps/*"
-            lcov --zerocounters --directory .
-            rm -rf ~/coverage
-            genhtml coverage.lcov --output-directory ~/coverage --title $CIRCLE_PROJECT_REPONAME
+            mkdir -p ~/coverage
+            gcovr --filter ~/project --coveralls coverage.json --html ~/coverage/coverage.html --html-nested ~/coverage/coverage.html
       - store_artifacts:
           path: ~/coverage
           destination: coverage
@@ -236,29 +223,10 @@ commands:
       flags:
         type: string
     steps:
-      - run:
-          name: "Install codecov"
-          command: |
-            # TODO: This should go to cpp-build-env image
-            gpg --no-default-keyring --keyring trustedkeys.gpg --keyserver keyserver.ubuntu.com --recv-key ED779869
-            
-            export CODECOV_VERSION=v0.4.1
-            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov
-            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov.SHA256SUM
-            curl -Os https://uploader.codecov.io/$CODECOV_VERSION/linux/codecov.SHA256SUM.sig
-  
-            gpgv codecov.SHA256SUM.sig codecov.SHA256SUM
-            shasum -c codecov.SHA256SUM
-            
-            chmod +x codecov
-            sudo mv codecov /usr/local/bin
-
-      - run:
-          name: "Upload to Codecov"
-          command: |
-            # Convert to relative paths
-            sed -i 's|$(pwd)/||' ~/build/coverage.lcov
-            codecov --flags <<parameters.flags>> --required --file ~/build/coverage.lcov -X gcov
+      - codecov/upload:
+          upload_args: --plugin noop
+          file: ../build/coverage.json
+          flags: <<parameters.flags>>
 
   package:
     description: "Make package"
@@ -309,6 +277,10 @@ jobs:
     steps:
       - build
       - test
+      - run:
+          name: "Export JSON tests"
+          working_directory: ~/package
+          command: tar -C ~/build/test/integration/export -cz fixtures > evmone-tests.tar.gz
       - package
 
   release-windows:
@@ -338,37 +310,6 @@ jobs:
           command: |
             $ErrorActionPreference = "Stop"
             & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch amd64
-            cmake --build ~/build
-      - test
-      - package
-
-  release-windows-32bit:
-    executor: win/server-2022
-    environment:
-      CMAKE_BUILD_TYPE: Release
-      CMAKE_BUILD_PARALLEL_LEVEL: 4
-    steps:
-      - checkout
-      - checkout_submodules
-      - run:
-          name: "Setup environment (bash)"
-          shell: bash
-          command: |
-            echo 'export PATH=$PATH:"/c/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin"' >> $BASH_ENV
-      - run:
-          name: 'Configure'
-          shell: powershell
-          command: |
-            $ErrorActionPreference = "Stop"
-            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
-            which cmake
-            cmake -S . -B ~/build -G Ninja -DCMAKE_INSTALL_PREFIX=C:\install -DEVMONE_TESTING=ON
-      - run:
-          name: 'Build'
-          shell: powershell
-          command: |
-            $ErrorActionPreference = "Stop"
-            & 'C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1' -Arch x86
             cmake --build ~/build
       - test
       - package
@@ -404,49 +345,146 @@ jobs:
             echo $name
             ghr -u $CIRCLE_PROJECT_USERNAME -r $CIRCLE_PROJECT_REPONAME -n "$name" $prerelease_flag $CIRCLE_TAG ~/package
 
-  blockchain-tests:
-    executor: blockchain-tests
+  execution-spec-tests:
+    executor: linux-gcc-latest
     environment:
       BUILD_TYPE: Coverage
-      CMAKE_OPTIONS: -DEVMONE_TESTING=OFF -DCMAKE_CXX_FLAGS=-Og
     steps:
       - build
-      - build_silkworm:
-          commit: 30ca8b324fcffb574c23c09fcba6386e57a7a5af
-      - download_execution_tests:
-          rev: v12.2
+      - download_execution_spec_tests:
+          release: v3.0.0
       - run:
-          name: "Silkworm-driven blockchain tests (Advanced)"
+          name: "Execution spec tests (state_tests)"
           working_directory: ~/build
-          no_output_timeout: 20m
-          command: ~/silkworm/consensus --evm lib/libevmone.so,advanced --tests ~/tests --threads $CMAKE_BUILD_PARALLEL_LEVEL
+          command: >
+            bin/evmone-statetest ~/spec-tests/fixtures/state_tests
       - run:
-          name: "Silkworm-driven blockchain tests (Baseline)"
+          name: "Execution spec tests (blockchain_tests)"
           working_directory: ~/build
-          no_output_timeout: 20m
-          command: ~/silkworm/consensus --evm lib/libevmone.so --tests ~/tests --threads $CMAKE_BUILD_PARALLEL_LEVEL
+          command: >
+            bin/evmone-blockchaintest ~/spec-tests/fixtures/blockchain_tests
+      - download_execution_spec_tests:
+          release: pectra-devnet-3@v1.5.0
+          fixtures_suffix: pectra-devnet-3
+      - run:
+          name: "Execution spec tests (develop, state_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/spec-tests/fixtures/state_tests
+          command: >
+            ~/build/bin/evmone-statetest
+            prague/eip2537_bls_12_381_precompiles
+      - run:
+          name: "Execution spec tests (develop, blockchain_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/spec-tests/fixtures/blockchain_tests
+          command: >
+            ~/build/bin/evmone-blockchaintest
+            prague/eip2935_historical_block_hashes_from_state
       - collect_coverage_gcc
       - upload_coverage:
-          flags: blockchaintests
+          flags: execution_spec_tests
 
-  state-tests:
-    executor: blockchain-tests
+  eof-execution-spec-tests:
+    executor: linux-gcc-latest
     environment:
       BUILD_TYPE: Coverage
-      CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-Og
+    steps:
+      - build
+      - download_execution_spec_tests:
+          release: eip7692@v1.1.0
+          fixtures_suffix: eip7692
+      - run:
+          name: "EOF pre-release execution spec tests (state_tests)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-statetest ~/spec-tests/fixtures/state_tests
+      - run:
+          name: "EOF pre-release execution spec tests (blockchain_tests)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-blockchaintest ~/spec-tests/fixtures/blockchain_tests
+      - run:
+          name: "EOF pre-release execution spec tests (eof_tests)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-eoftest ~/spec-tests/fixtures/eof_tests 
+      - collect_coverage_gcc
+      - upload_coverage:
+          flags: eof_execution_spec_tests
+
+  ethereum-tests:
+    executor: linux-gcc-latest
+    environment:
+      BUILD_TYPE: Coverage
     steps:
       - build
       - download_execution_tests:
-          rev: v12.2
+          rev: v14.1
+      - run:
+          name: "State tests"
+          working_directory: ~/build
+          command: >
+            bin/evmone-statetest 
+            ~/tests/GeneralStateTests 
+            ~/tests/LegacyTests/Cancun/GeneralStateTests
+            ~/tests/LegacyTests/Constantinople/GeneralStateTests
+      - run:
+          name: "EOF State tests"
+          working_directory: ~/build
+          command: |
+            bin/evmone-statetest ~/tests/EIPTests/StateTests/stEOF
+      - run:
+          name: "EOF validation tests"
+          working_directory: ~/build
+          command: >
+            bin/evmone-eoftest ~/tests/EOFTests
+      - run:
+          name: "Blockchain tests (GeneralStateTests)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-blockchaintest
+            --gtest_filter='*:-VMTests/vmPerformance.*:*.*Call50000_sha256:*.CALLBlake2f_MaxRounds'
+            ~/tests/BlockchainTests/GeneralStateTests
+      - run:
+          name: "Blockchain tests (ValidBlocks)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-blockchaintest
+            --gtest_filter='*:-bcMultiChainTest.*:bcTotalDifficultyTest.*:bcForkStressTest.ForkStressTest:bcGasPricerTest.RPC_API_Test:bcValidBlockTest.SimpleTx3LowS'
+            ~/tests/BlockchainTests/ValidBlocks
+            ~/tests/LegacyTests/Cancun/BlockchainTests/ValidBlocks
+      - run:
+          name: "Blockchain tests (EIPs)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-blockchaintest
+            --gtest_filter='-*StateTests/stEOF/*.*:*StateTests/stEIP2537.*'
+            ~/tests/EIPTests/BlockchainTests/
+      - collect_coverage_gcc
+      - upload_coverage:
+          flags: ethereum_tests
+
+  precompiles-silkpre:
+    executor: linux-gcc-latest
+    environment:
+      BUILD_TYPE: Coverage
+      CMAKE_OPTIONS: -DCMAKE_CXX_FLAGS=-Og -DEVMONE_PRECOMPILES_SILKPRE=1
+    steps:
+      - run:
+          name: "Install GMP"
+          command: sudo apt-get -q update && sudo apt-get -qy install libgmp-dev
+      - build
+      - download_execution_tests:
+          rev: v14.1
+          legacy: false
       - run:
           name: "State tests"
           working_directory: ~/build
           command: |
-            export EVMONE_PRECOMPILES_STUB=~/project/test/state/precompiles_stub.json 
-            bin/evmone-statetest ~/tests/GeneralStateTests ~/tests/EIPTests/StateTests/stEOF ~/tests/LegacyTests/Constantinople/GeneralStateTests
+            bin/evmone-statetest ~/tests/GeneralStateTests
       - collect_coverage_gcc
       - upload_coverage:
-          flags: statetests
+          flags: ethereum_tests_silkpre
 
   gcc-min:
     executor: linux-gcc-min
@@ -456,6 +494,8 @@ jobs:
 
   clang-min:
     executor: linux-clang-min
+    environment:
+      CMAKE_OPTIONS=-DEVMONE_X86_64_ARCH_LEVEL=3
     steps:
       - build
       - test
@@ -482,9 +522,6 @@ jobs:
       - build
       - test
       - run:
-          name: "Install valgrind"
-          command: sudo apt-get -q update && sudo apt-get -qy install --no-install-recommends valgrind
-      - run:
           name: "memcheck"
           working_directory: ~/build
           command: valgrind --vgdb=no --error-exitcode=99 bin/evmone-unittests
@@ -500,11 +537,19 @@ jobs:
   clang-latest-sanitizers:
     executor: linux-clang-xlarge
     environment:
-      CMAKE_OPTIONS: -DBUILD_SHARED_LIBS=NO -DSANITIZE=address,undefined,shift-exponent,implicit-conversion,nullability -DCMAKE_CXX_CLANG_TIDY=clang-tidy
+      CMAKE_OPTIONS: -DBUILD_SHARED_LIBS=NO -DSANITIZE=address,undefined,shift-exponent,implicit-conversion,nullability
       UBSAN_OPTIONS: halt_on_error=1
     steps:
       - build
       - test
+
+  clang-tidy:
+    executor: linux-clang-2xlarge
+    environment:
+      CMAKE_OPTIONS: -DCMAKE_CXX_CLANG_TIDY=clang-tidy -DCMAKE_CXX_FLAGS=-g0
+      BUILD_TYPE: Debug
+    steps:
+      - build
 
   clang-latest-coverage:
     executor: linux-clang-latest
@@ -524,7 +569,7 @@ jobs:
             SHOW_ARGS='-format=html -show-branches=count -show-regions -show-expansions'
             
             mkdir ~/coverage
-            llvm-profdata merge *.profraw -o evmone.profdata
+            llvm-profdata merge -sparse *.profraw -o evmone.profdata
             llvm-cov show $ARGS $SHOW_ARGS > ~/coverage/full.html
             llvm-cov show $ARGS $SHOW_ARGS -region-coverage-lt=100 > ~/coverage/missing.html
 
@@ -558,7 +603,7 @@ jobs:
     executor: macos
     environment:
       BUILD_TYPE: RelWithDebInfo
-      CMAKE_OPTIONS: -DSANITIZE=address
+      CMAKE_OPTIONS: -DSANITIZE=address,undefined
       TESTS_FILTER: unittests
     steps:
       - run:
@@ -580,7 +625,7 @@ jobs:
     executor: linux-base
     steps:
       - install_cmake:
-          version: 3.16.9
+          version: 3.18.4
       - build
       - test
 
@@ -590,9 +635,6 @@ jobs:
       BUILD_TYPE: Release
       QEMU_CPU: core2duo  # The lowest 64-bit CPU I could find, but qemu64 should be good too.
     steps:
-      - run:
-          name: "Install qemu"
-          command: sudo apt update -y && sudo apt install -y qemu-user-static
       - build
       - run:
           name: "Check evmone.so"
@@ -603,6 +645,16 @@ jobs:
           working_directory: ~/build
           command: (! qemu-x86_64-static bin/evmone-unittests 2>&1) | grep "CPU does not support"
 
+  riscv32:
+    executor: linux-gcc-latest
+    environment:
+      BUILD_TYPE: Release
+      CMAKE_OPTIONS: -DCMAKE_TOOLCHAIN_FILE=~/project/cmake/toolchains/riscv32.cmake
+    steps:
+      - install_riscv_toolchain
+      - build
+      - test
+
 
 
 workflows:
@@ -610,6 +662,7 @@ workflows:
   evmone:
     jobs:
       - lint
+      - clang-tidy
       - release-linux:
           filters:
             tags:
@@ -618,7 +671,6 @@ workflows:
           filters:
             tags:
               only: /.*/
-      - release-windows-32bit
       - release-macos:
           filters:
             tags:
@@ -633,8 +685,10 @@ workflows:
               ignore: /.*/
             tags:
               only: /^v[0-9].*/
-      - state-tests
-      - blockchain-tests
+      - execution-spec-tests
+      - eof-execution-spec-tests
+      - ethereum-tests
+      - precompiles-silkpre
       - cmake-min
       - gcc-min
       - clang-min
@@ -646,4 +700,5 @@ workflows:
       - xcode-min
       - gcc-32bit
       - x86-64-v1
+      - riscv32
       - fuzzing

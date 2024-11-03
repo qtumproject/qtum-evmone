@@ -6,9 +6,9 @@
 #include <evmone/eof.hpp>
 #include <gtest/gtest.h>
 #include <test/utils/bytecode.hpp>
-#include <test/utils/utils.hpp>
 
 using namespace evmone::advanced;
+using namespace evmone::test;
 
 constexpr auto rev = EVMC_BYZANTIUM;
 const auto& op_tbl = get_op_table(rev);
@@ -257,10 +257,11 @@ TEST(analysis, jumpdests_groups)
 
 TEST(analysis, example1_eof1)
 {
-    const auto code = eof1_bytecode(
-        push(0x2a) + push(0x1e) + OP_MSTORE8 + OP_MSIZE + push(0) + OP_SSTORE, 2, "deadbeef");
+    const bytecode code =
+        eof_bytecode(push(0x2a) + push(0x1e) + OP_MSTORE8 + OP_MSIZE + push(0) + OP_SSTORE, 2)
+            .data("deadbeef");
     const auto header = evmone::read_valid_eof1_header(code);
-    const auto analysis = analyze(EVMC_CANCUN, header.get_code(code, 0));
+    const auto analysis = analyze(EVMC_PRAGUE, header.get_code(code, 0));
 
     ASSERT_EQ(analysis.instrs.size(), 8);
 

@@ -16,11 +16,17 @@ enum ErrorCode : int
     TX_TYPE_NOT_SUPPORTED,
     INSUFFICIENT_FUNDS,
     NONCE_HAS_MAX_VALUE,
+    NONCE_TOO_HIGH,
+    NONCE_TOO_LOW,
     TIP_GT_FEE_CAP,
     FEE_CAP_LESS_THEN_BLOCKS,
     GAS_LIMIT_REACHED,
     SENDER_NOT_EOA,
     INIT_CODE_SIZE_LIMIT_EXCEEDED,
+    CREATE_BLOB_TX,
+    EMPTY_BLOB_HASHES_LIST,
+    INVALID_BLOB_HASH_VERSION,
+    BLOB_GAS_LIMIT_EXCEEDED,
     UNKNOWN_ERROR,
 };
 
@@ -38,13 +44,17 @@ inline const std::error_category& evmone_category() noexcept
             case SUCCESS:
                 return "";
             case INTRINSIC_GAS_TOO_LOW:
-                return "intrinsic gas too low:";
+                return "intrinsic gas too low";
             case TX_TYPE_NOT_SUPPORTED:
                 return "transaction type not supported";
             case INSUFFICIENT_FUNDS:
                 return "insufficient funds for gas * price + value";
             case NONCE_HAS_MAX_VALUE:
                 return "nonce has max value:";
+            case NONCE_TOO_HIGH:
+                return "nonce too high";
+            case NONCE_TOO_LOW:
+                return "nonce too low";
             case TIP_GT_FEE_CAP:
                 return "max priority fee per gas higher than max fee per gas";
             case FEE_CAP_LESS_THEN_BLOCKS:
@@ -55,6 +65,14 @@ inline const std::error_category& evmone_category() noexcept
                 return "sender not an eoa:";
             case INIT_CODE_SIZE_LIMIT_EXCEEDED:
                 return "max initcode size exceeded";
+            case CREATE_BLOB_TX:
+                return "blob transaction must not be a create transaction";
+            case EMPTY_BLOB_HASHES_LIST:
+                return "empty blob hashes list";
+            case INVALID_BLOB_HASH_VERSION:
+                return "invalid blob hash version";
+            case BLOB_GAS_LIMIT_EXCEEDED:
+                return "blob gas limit exceeded";
             case UNKNOWN_ERROR:
                 return "Unknown error";
             default:

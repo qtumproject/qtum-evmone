@@ -22,7 +22,7 @@ namespace
 {
 constexpr int unspecified = -1000000;
 
-constexpr int get_revision_defined_in(size_t op) noexcept
+constexpr int get_revision_defined_in(uint8_t op) noexcept
 {
     for (size_t r = EVMC_FRONTIER; r <= EVMC_MAX_REVISION; ++r)
     {
@@ -32,13 +32,15 @@ constexpr int get_revision_defined_in(size_t op) noexcept
     return unspecified;
 }
 
-constexpr bool is_terminating(Opcode op) noexcept
+constexpr bool is_terminating(uint8_t op) noexcept
 {
     switch (op)
     {
     case OP_STOP:
     case OP_RETURN:
     case OP_RETF:
+    case OP_JUMPF:
+    case OP_RETURNCONTRACT:
     case OP_REVERT:
     case OP_INVALID:
     case OP_SELFDESTRUCT:
@@ -48,7 +50,7 @@ constexpr bool is_terminating(Opcode op) noexcept
     }
 }
 
-template <Opcode Op>
+template <uint8_t Op>
 constexpr void validate_traits_of() noexcept
 {
     constexpr auto tr = instr::traits[Op];
@@ -56,10 +58,15 @@ constexpr void validate_traits_of() noexcept
     // immediate_size
     if constexpr (Op >= OP_PUSH1 && Op <= OP_PUSH32)
         static_assert(tr.immediate_size == Op - OP_PUSH1 + 1);
-    else if constexpr (Op == OP_RJUMP || Op == OP_RJUMPI || Op == OP_CALLF)
+    else if constexpr (Op == OP_RJUMP || Op == OP_RJUMPI || Op == OP_CALLF || Op == OP_JUMPF)
         static_assert(tr.immediate_size == 2);
-    else if constexpr (Op == OP_DUPN || Op == OP_SWAPN)
+    else if constexpr (Op == OP_RJUMPV)
         static_assert(tr.immediate_size == 1);
+    else if constexpr (Op == OP_DUPN || Op == OP_SWAPN || Op == OP_EXCHANGE || Op == OP_EOFCREATE ||
+                       Op == OP_RETURNCONTRACT)
+        static_assert(tr.immediate_size == 1);
+    else if constexpr (Op == OP_DATALOADN)
+        static_assert(tr.immediate_size == 2);
     else
         static_assert(tr.immediate_size == 0);  // Including RJUMPV.
 
@@ -68,7 +75,11 @@ constexpr void validate_traits_of() noexcept
 
     // since
     constexpr auto expected_rev = get_revision_defined_in(Op);
-    static_assert(tr.since.has_value() ? *tr.since == expected_rev : expected_rev == unspecified);
+    constexpr auto since =
+        tr.since.has_value() ?
+            tr.eof_since.has_value() ? std::min(*tr.since, *tr.eof_since) : *tr.since :
+            tr.eof_since;
+    static_assert(since.has_value() ? *since == expected_rev : expected_rev == unspecified);
 }
 
 template <std::size_t... Ops>
@@ -103,13 +114,30 @@ constexpr bool instruction_only_in_evmone(evmc_revision rev, Opcode op) noexcept
 
     switch (op)
     {
+    case OP_BLOBHASH:
+    case OP_BLOBBASEFEE:
     case OP_RJUMP:
     case OP_RJUMPI:
     case OP_RJUMPV:
     case OP_CALLF:
     case OP_RETF:
+    case OP_JUMPF:
     case OP_DUPN:
     case OP_SWAPN:
+    case OP_EXCHANGE:
+    case OP_MCOPY:
+    case OP_DATALOAD:
+    case OP_DATALOADN:
+    case OP_DATASIZE:
+    case OP_DATACOPY:
+    case OP_RETURNDATALOAD:
+    case OP_TLOAD:
+    case OP_TSTORE:
+    case OP_EXTCALL:
+    case OP_EXTDELEGATECALL:
+    case OP_EXTSTATICCALL:
+    case OP_EOFCREATE:
+    case OP_RETURNCONTRACT:
         return true;
     default:
         return false;

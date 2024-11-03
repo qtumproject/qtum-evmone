@@ -8,6 +8,7 @@ set(PREFIX ${PREFIX}/statetest)
 set(TESTS1 ${CMAKE_CURRENT_SOURCE_DIR}/tests1)
 set(TESTS2 ${CMAKE_CURRENT_SOURCE_DIR}/tests2)
 set(TESTS_EOF ${CMAKE_CURRENT_SOURCE_DIR}/eof)
+set(TESTS_TX ${CMAKE_CURRENT_SOURCE_DIR}/tx)
 
 add_test(
     NAME ${PREFIX}/no_arguments
@@ -29,7 +30,7 @@ B\.
   T
 SuiteA\.
   test1
-  test2
+  test2_multi
 ]]
 )
 
@@ -56,13 +57,13 @@ B\.
   T
 SuiteA\.
   test1
-  test2
+  test2_multi
   test1
 .*test/integration/statetest/tests1/B\.
   T
 \.
   test1
-  test2
+  test2_multi
 ]]
 )
 
@@ -76,12 +77,36 @@ set_tests_properties(
 )
 
 add_test(
+    NAME ${PREFIX}/multi_test
+    COMMAND evmone-statetest ${TESTS1}/SuiteA/test2_multi.json
+)
+set_tests_properties(
+    ${PREFIX}/multi_test PROPERTIES
+    # Make sure both tests in the file are executed (both should fail).
+    PASS_REGULAR_EXPRESSION "test_case_1.*test_case_2"
+)
+
+add_test(
     NAME ${PREFIX}/trace
     COMMAND evmone-statetest ${TESTS1}/SuiteA/test1.json --trace
 )
+set(EXPECTED_TRACE [[
+{"pc":0,"op":96,"gas":"0x5c878","gasCost":"0x3","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"}
+{"pc":2,"op":96,"gas":"0x5c875","gasCost":"0x3","memSize":0,"stack":["0x1"],"depth":1,"refund":0,"opName":"PUSH1"}
+{"pc":4,"op":1,"gas":"0x5c872","gasCost":"0x3","memSize":0,"stack":["0x1","0x1"],"depth":1,"refund":0,"opName":"ADD"}
+{"pc":5,"op":96,"gas":"0x5c86f","gasCost":"0x3","memSize":0,"stack":["0x2"],"depth":1,"refund":0,"opName":"PUSH1"}
+{"pc":7,"op":85,"gas":"0x5c86c","gasCost":"0x0","memSize":0,"stack":["0x2","0x0"],"depth":1,"refund":0,"opName":"SSTORE"}
+{"pc":8,"op":0,"gas":"0x57218","gasCost":"0x0","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"STOP"}
+{"pass":true,"gasUsed":"0xa868","stateRoot":"0xe8010ce590f401c9d61fef8ab05bea9bcec24281b795e5868809bc4e515aa530"}
+]])
+# Escape regex special characters.
+string(REPLACE "{" "\\{" EXPECTED_TRACE ${EXPECTED_TRACE})
+string(REPLACE "}" "\\}" EXPECTED_TRACE ${EXPECTED_TRACE})
+string(REPLACE "[" "\\[" EXPECTED_TRACE ${EXPECTED_TRACE})
+string(REPLACE "]" "\\]" EXPECTED_TRACE ${EXPECTED_TRACE})
 set_tests_properties(
     ${PREFIX}/trace PROPERTIES
-    PASS_REGULAR_EXPRESSION [=[\{"pc":4,"op":1,"opName":"ADD","gas":0x5c872,"stack":\["0x1","0x1"\],"memorySize":0\}]=]
+    PASS_REGULAR_EXPRESSION ${EXPECTED_TRACE}
 )
 
 add_test(
@@ -91,4 +116,13 @@ add_test(
 set_tests_properties(
     ${PREFIX}/invalid_eof_in_state PROPERTIES
     PASS_REGULAR_EXPRESSION "EOF container at 0x0000000000000000000000000000000000bade0f is invalid"
+)
+
+add_test(
+    NAME ${PREFIX}/tx_invalid_nonce
+    COMMAND evmone-statetest ${TESTS_TX}/invalid_nonce.json
+)
+set_tests_properties(
+    ${PREFIX}/tx_invalid_nonce PROPERTIES
+    PASS_REGULAR_EXPRESSION "unexpected invalid transaction: nonce too high"
 )

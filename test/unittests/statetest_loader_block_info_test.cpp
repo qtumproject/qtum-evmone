@@ -17,7 +17,11 @@ TEST(statetest_loader, block_info)
             "currentTimestamp": "0",
             "currentBaseFee": "7",
             "currentRandom": "0x00",
-            "withdrawals": []
+            "withdrawals": [],
+            "blockHashes": {
+                "0" : "0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e",
+                "1" : "0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b"
+            }
         })";
 
     const auto bi = test::from_json<state::BlockInfo>(json::json::parse(input));
@@ -27,6 +31,10 @@ TEST(statetest_loader, block_info)
     EXPECT_EQ(bi.base_fee, 7);
     EXPECT_EQ(bi.timestamp, 0);
     EXPECT_EQ(bi.number, 0);
+    EXPECT_EQ(bi.known_block_hashes.at(0),
+        0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e_bytes32);
+    EXPECT_EQ(bi.known_block_hashes.at(1),
+        0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b_bytes32);
 }
 
 TEST(statetest_loader, block_info_hex)
@@ -131,7 +139,7 @@ TEST(statetest_loader, block_info_0_parent_difficulty)
         "parentBaseFee": "7",
         "parentGasUsed": "0",
         "parentGasLimit": "100000000000000000",
-        "parentTimstamp": "0",
+        "parentTimestamp": "253",
         "blockHashes": {
             "0": "0xc305d826e3784046a7e9d31128ef98d3e96133fe454c16ef630574d967dfdb1a"
         },
@@ -147,6 +155,7 @@ TEST(statetest_loader, block_info_0_parent_difficulty)
     EXPECT_EQ(bi.base_fee, 7);
     EXPECT_EQ(bi.timestamp, 1000);
     EXPECT_EQ(bi.number, 1);
+    EXPECT_EQ(bi.parent_timestamp, 253);
 }
 
 TEST(statetest_loader, block_info_0_random)
@@ -209,4 +218,121 @@ TEST(statetest_loader, block_info_withdrawals)
     EXPECT_EQ(bi.withdrawals[0].get_amount(), intx::uint256{0x800000000} * 1'000'000'000);
     EXPECT_EQ(bi.withdrawals[1].recipient, 0x0000000000000000000000000000000000000200_address);
     EXPECT_EQ(bi.withdrawals[1].get_amount(), intx::uint256{0xffffffffffffffff} * 1'000'000'000);
+}
+
+TEST(statetest_loader, block_info_ommers)
+{
+    constexpr std::string_view input = R"({
+            "currentCoinbase": "0x1111111111111111111111111111111111111111",
+            "currentDifficulty": "0x0",
+            "currentGasLimit": "0x0",
+            "currentNumber": "0",
+            "currentTimestamp": "0",
+            "currentBaseFee": "7",
+            "currentRandom": "0x00",
+            "ommers": [
+                {
+                    "address": "0x0000000000000000000000000000000000000100",
+                    "delta": 1
+                },
+                {
+                    "address": "0x0000000000000000000000000000000000000200",
+                    "delta": 4
+                }
+            ],
+            "withdrawals": []
+        })";
+
+    const auto bi = test::from_json<state::BlockInfo>(json::json::parse(input));
+    EXPECT_EQ(bi.coinbase, 0x1111111111111111111111111111111111111111_address);
+    EXPECT_EQ(bi.prev_randao, 0x00_bytes32);
+    EXPECT_EQ(bi.gas_limit, 0x0);
+    EXPECT_EQ(bi.base_fee, 7);
+    EXPECT_EQ(bi.timestamp, 0);
+    EXPECT_EQ(bi.number, 0);
+    EXPECT_EQ(bi.withdrawals.size(), 0);
+    EXPECT_EQ(bi.ommers.size(), 2);
+    EXPECT_EQ(bi.ommers[0].beneficiary, 0x0000000000000000000000000000000000000100_address);
+    EXPECT_EQ(bi.ommers[0].delta, 1);
+    EXPECT_EQ(bi.ommers[1].beneficiary, 0x0000000000000000000000000000000000000200_address);
+    EXPECT_EQ(bi.ommers[1].delta, 4);
+}
+
+TEST(statetest_loader, block_info_parent_blob_gas)
+{
+    constexpr std::string_view input = R"({
+            "currentCoinbase": "0x1111111111111111111111111111111111111111",
+            "currentDifficulty": "0x0",
+            "currentGasLimit": "0x0",
+            "currentNumber": "0",
+            "currentTimestamp": "0",
+            "currentBaseFee": "7",
+            "currentRandom": "0x00",
+            "withdrawals": [],
+            "blockHashes": {
+                "0" : "0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e",
+                "1" : "0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b"
+            },
+            "parentExcessBlobGas": "1",
+            "parentBlobGasUsed": "0x60000"
+        })";
+
+    const auto bi = test::from_json<state::BlockInfo>(json::json::parse(input));
+    EXPECT_EQ(bi.coinbase, 0x1111111111111111111111111111111111111111_address);
+    EXPECT_EQ(bi.prev_randao, 0x00_bytes32);
+    EXPECT_EQ(bi.gas_limit, 0x0);
+    EXPECT_EQ(bi.base_fee, 7);
+    EXPECT_EQ(bi.timestamp, 0);
+    EXPECT_EQ(bi.number, 0);
+    EXPECT_EQ(bi.known_block_hashes.at(0),
+        0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e_bytes32);
+    EXPECT_EQ(bi.known_block_hashes.at(1),
+        0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b_bytes32);
+    EXPECT_EQ(bi.excess_blob_gas, 1);
+}
+
+TEST(statetest_loader, block_info_current_blob_gas)
+{
+    constexpr std::string_view input = R"({
+            "currentCoinbase": "0x1111111111111111111111111111111111111111",
+            "currentDifficulty": "0x0",
+            "currentGasLimit": "0x0",
+            "currentNumber": "0",
+            "currentTimestamp": "0",
+            "currentBaseFee": "7",
+            "currentRandom": "0x00",
+            "withdrawals": [],
+            "blockHashes": {
+                "0" : "0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e",
+                "1" : "0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b"
+            },
+            "currentExcessBlobGas": "2"
+        })";
+
+    const auto bi = test::from_json<state::BlockInfo>(json::json::parse(input));
+    EXPECT_EQ(bi.coinbase, 0x1111111111111111111111111111111111111111_address);
+    EXPECT_EQ(bi.prev_randao, 0x00_bytes32);
+    EXPECT_EQ(bi.gas_limit, 0x0);
+    EXPECT_EQ(bi.base_fee, 7);
+    EXPECT_EQ(bi.timestamp, 0);
+    EXPECT_EQ(bi.number, 0);
+    EXPECT_EQ(bi.known_block_hashes.at(0),
+        0xe729de3fec21e30bea3d56adb01ed14bc107273c2775f9355afb10f594a10d9e_bytes32);
+    EXPECT_EQ(bi.known_block_hashes.at(1),
+        0xb5eee60b45801179cbde3781b9a5dee9b3111554618c9cda3d6f7e351fd41e0b_bytes32);
+    EXPECT_EQ(bi.excess_blob_gas, 2);
+}
+
+TEST(statetest_loader, block_info_parent_beacon_block_root)
+{
+    constexpr std::string_view input = R"({
+        "currentNumber": "0",
+        "currentTimestamp": "0",
+        "currentGasLimit": "0",
+        "currentCoinbase": "",
+        "parentBeaconBlockRoot": "0xbeac045007"
+    })";
+
+    const auto bi = test::from_json<state::BlockInfo>(json::json::parse(input));
+    EXPECT_EQ(bi.parent_beacon_block_root, 0xbeac045007_bytes32);
 }

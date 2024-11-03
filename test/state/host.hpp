@@ -12,21 +12,27 @@ namespace evmone::state
 {
 using evmc::uint256be;
 
-inline constexpr size_t max_code_size = 0x6000;
-inline constexpr size_t max_initcode_size = 2 * max_code_size;
-
-/// Computes the address of to-be-created contract.
+/// Computes the address of to-be-created contract with the CREATE scheme.
 ///
-/// Computes the new account address for the contract creation context
-/// as defined by 𝐀𝐃𝐃𝐑 in Yellow Paper, 7. Contract Creation, (86).
+/// Computes the new account address for the contract creation context of the CREATE instruction
+/// or a create transaction.
+/// This is defined by 𝐀𝐃𝐃𝐑 in Yellow Paper, 7. Contract Creation, (88-90), the case for ζ = ∅.
 ///
 /// @param sender        The address of the message sender. YP: 𝑠.
 /// @param sender_nonce  The sender's nonce before the increase. YP: 𝑛.
-/// @param salt          The salt for CREATE2. If null, CREATE address is computed. YP: ζ.
-/// @param init_code     The contract creation init code. Value only affects CREATE2. YP: 𝐢.
-/// @return              The computed address for CREATE or CREATE2 scheme.
-address compute_new_account_address(const address& sender, uint64_t sender_nonce,
-    const std::optional<bytes32>& salt, bytes_view init_code) noexcept;
+/// @return              The address computed with the CREATE scheme.
+[[nodiscard]] address compute_create_address(const address& sender, uint64_t sender_nonce) noexcept;
+
+/// Computes the address of to-be-created contract with the CREATE2 / EOFCREATE scheme.
+///
+/// Computes the new account address for the contract creation context of the create instruction.
+///
+/// @param sender        The address of the message sender.
+/// @param salt          The salt.
+/// @param init_code     The init_code to hash (initcode or initcontainer).
+/// @return              The address computed with the scheme.
+[[nodiscard]] address compute_create2_address(
+    const address& sender, const bytes32& salt, bytes_view init_code) noexcept;
 
 class Host : public evmc::Host
 {
@@ -54,6 +60,12 @@ private:
         const address& addr, const bytes32& key) const noexcept override;
 
     evmc_storage_status set_storage(
+        const address& addr, const bytes32& key, const bytes32& value) noexcept override;
+
+    [[nodiscard]] evmc::bytes32 get_transient_storage(
+        const address& addr, const bytes32& key) const noexcept override;
+
+    void set_transient_storage(
         const address& addr, const bytes32& key, const bytes32& value) noexcept override;
 
     [[nodiscard]] uint256be get_balance(const address& addr) const noexcept override;
@@ -88,7 +100,7 @@ private:
     /// which may finally be moved to EVM.
     /// Any state modification is not reverted.
     /// @return Modified message or std::nullopt in case of EVM exception.
-    std::optional<evmc_message> prepare_message(evmc_message msg);
+    std::optional<evmc_message> prepare_message(evmc_message msg) noexcept;
 
     evmc::Result execute_message(const evmc_message& msg) noexcept;
 };

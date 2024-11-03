@@ -2,23 +2,25 @@
 // Copyright 2022 The evmone Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-#include "../utils/utils.hpp"
 #include <gtest/gtest.h>
-#include <test/state/account.hpp>
 #include <test/state/bloom_filter.hpp>
 #include <test/state/mpt.hpp>
 #include <test/state/mpt_hash.hpp>
 #include <test/state/rlp.hpp>
 #include <test/state/state.hpp>
+#include <test/state/test_state.hpp>
+#include <test/utils/utils.hpp>
 #include <array>
 
+using namespace intx::literals;
 using namespace evmone;
 using namespace evmone::state;
-using namespace intx;
+using namespace evmone::test;
+
 
 TEST(state_mpt_hash, empty)
 {
-    EXPECT_EQ(mpt_hash(std::unordered_map<evmone::address, Account>()), emptyMPTHash);
+    EXPECT_EQ(mpt_hash(TestState{}), EMPTY_MPT_HASH);
 }
 
 TEST(state_mpt_hash, single_account_v1)
@@ -27,25 +29,21 @@ TEST(state_mpt_hash, single_account_v1)
     constexpr auto expected =
         0x084f337237951e425716a04fb0aaa74111eda9d9c61767f2497697d0a201c92e_bytes32;
 
-    Account acc;
-    acc.balance = 1_u256;
-    const std::unordered_map<address, Account> accounts{{0x02_address, acc}};
+    const TestState accounts{{0x02_address, {.balance = 1}}};
     EXPECT_EQ(mpt_hash(accounts), expected);
 }
 
 TEST(state_mpt_hash, two_accounts)
 {
-    std::unordered_map<address, Account> accounts;
-    EXPECT_EQ(mpt_hash(accounts), emptyMPTHash);
-
-    accounts[0x00_address] = Account{};
+    TestState accounts;
+    accounts[0x00_address] = {};
     EXPECT_EQ(mpt_hash(accounts),
         0x0ce23f3c809de377b008a4a3ee94a0834aac8bec1f86e28ffe4fdb5a15b0c785_bytes32);
 
-    Account acc2;
+    TestAccount acc2;
     acc2.nonce = 1;
     acc2.balance = -2_u256;
-    acc2.code = {0x00};
+    acc2.code = bytes{0x00};  // Note: `= {0x00}` causes GCC 12 warning at -O3.
     acc2.storage[0x01_bytes32] = {0xfe_bytes32};
     acc2.storage[0x02_bytes32] = {0xfd_bytes32};
     accounts[0x01_address] = acc2;
@@ -55,11 +53,11 @@ TEST(state_mpt_hash, two_accounts)
 
 TEST(state_mpt_hash, deleted_storage)
 {
-    Account acc;
+    TestAccount acc;
     acc.storage[0x01_bytes32] = {};
     acc.storage[0x02_bytes32] = {0xfd_bytes32};
     acc.storage[0x03_bytes32] = {};
-    const std::unordered_map<address, Account> accounts{{0x07_address, acc}};
+    const TestState accounts{{0x07_address, acc}};
     EXPECT_EQ(mpt_hash(accounts),
         0x4e7338c16731491e0fb5d1623f5265c17699c970c816bab71d4d717f6071414d_bytes32);
 }
@@ -70,7 +68,7 @@ TEST(state_mpt_hash, one_transactions)
 
     Transaction tx{};
 
-    tx.kind = Transaction::Kind::eip1559;
+    tx.type = Transaction::Type::eip1559;
     tx.data =
         "04a7e62e00000000000000000000000000000000000000000000000000000000000000c0000000000000000000"
         "000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000"
@@ -186,9 +184,9 @@ TEST(state_mpt_hash, legacy_and_eip1559_receipt_three_logs_no_logs)
     //}
 
     TransactionReceipt receipt0{};
-    receipt0.kind = evmone::state::Transaction::Kind::legacy;
+    receipt0.type = evmone::state::Transaction::Type::legacy;
     receipt0.status = EVMC_SUCCESS;
-    receipt0.gas_used = 0x24522;
+    receipt0.cumulative_gas_used = 0x24522;
 
     Log l0;
     l0.addr = 0x84bf5c35c54a994c72ff9d8b4cca8f5034153a2c_address;
@@ -236,11 +234,72 @@ TEST(state_mpt_hash, legacy_and_eip1559_receipt_three_logs_no_logs)
     //}
 
     TransactionReceipt receipt1{};
-    receipt1.kind = evmone::state::Transaction::Kind::eip1559;
+    receipt1.type = evmone::state::Transaction::Type::eip1559;
     receipt1.status = EVMC_SUCCESS;
-    receipt1.gas_used = 0x2cd9b;
+    receipt1.cumulative_gas_used = 0x2cd9b;
     receipt1.logs_bloom_filter = compute_bloom_filter(receipt1.logs);
 
     EXPECT_EQ(mpt_hash(std::array{receipt0, receipt1}),
         0x7199a3a86010634dc205a1cdd6ec609f70b954167583cb3acb6a2e3057916016_bytes32);
+}
+
+TEST(state_mpt_hash, pre_byzantium_receipt)
+{
+    // Block taken from Ethereum mainnet
+    // https://etherscan.io/txs?block=4276370
+
+    using namespace evmone::state;
+
+    TransactionReceipt receipt0{
+        .type = Transaction::Type::legacy,
+        .cumulative_gas_used = 0x8323,
+        .logs = {},
+        .logs_bloom_filter = compute_bloom_filter(receipt0.logs),
+        .post_state = 0x4a8f9db452b100f9ec85830785b2d1744c3e727561c334c4f18022daa113290a_bytes32,
+    };
+
+    TransactionReceipt receipt1{
+        .type = Transaction::Type::legacy,
+        .cumulative_gas_used = 0x10646,
+        .logs = {},
+        .logs_bloom_filter = compute_bloom_filter(receipt1.logs),
+        .post_state = 0xb14ab7c32b3e126591731850976a15e2359c1f3628f1b0ff37776c210b9cadb8_bytes32,
+    };
+
+    TransactionReceipt receipt2{
+        .type = Transaction::Type::legacy,
+        .cumulative_gas_used = 0x1584e,
+        .logs = {},
+        .logs_bloom_filter = compute_bloom_filter(receipt2.logs),
+        .post_state = 0x7bda915deb201cae321d31028d322877e8fb98264db3ffcbfec7ea7b9b2106b1_bytes32,
+    };
+
+    EXPECT_EQ(mpt_hash(std::array{receipt0, receipt1, receipt2}),
+        0x8a4fa43a95939b06ad13ce8cd08e026ae6e79ea3c5fc80c732d252e2769ce778_bytes32);
+}
+
+TEST(state_mpt_hash, mpt_hashing_test)
+{
+    // The same data as in 'statetest_withdrawals.withdrawals_warmup_test_case' unit test.
+    MPT trie;
+
+    trie.insert("80"_hex, "db808094c000000000000000000000000000000000000001830186a0"_hex);
+    EXPECT_EQ(
+        trie.hash(), 0x4ae14e53d6bf2a9c73891aef9d2e6373ff06d400b6e7727b17a5eceb5e8dec9d_bytes32);
+
+    trie.insert("01"_hex, "db018094c000000000000000000000000000000000000002830186a0"_hex);
+    EXPECT_EQ(
+        trie.hash(), 0xc5128234c0282b256e2aa91ddc783ddb2c21556766f2e11e64159561b59f8ac7_bytes32);
+
+    trie.insert("0x02"_hex, "0xdb028094c000000000000000000000000000000000000003830186a0"_hex);
+    trie.insert("0x03"_hex, "0xdb038094c000000000000000000000000000000000000004830186a0"_hex);
+    trie.insert("0x04"_hex, "0xdb048094c000000000000000000000000000000000000005830186a0"_hex);
+    trie.insert("0x05"_hex, "0xdb058094c000000000000000000000000000000000000006830186a0"_hex);
+    trie.insert("0x06"_hex, "0xdb068094c000000000000000000000000000000000000007830186a0"_hex);
+    trie.insert("0x07"_hex, "0xdb078094c000000000000000000000000000000000000008830186a0"_hex);
+    trie.insert("0x08"_hex, "0xdb088094c000000000000000000000000000000000000009830186a0"_hex);
+    trie.insert("0x09"_hex, "0xdb098094c000000000000000000000000000000000000010830186a0"_hex);
+
+    EXPECT_EQ(
+        trie.hash(), 0xaa45c53e9f7d6a8362f80876029915da00b1441ef39eb9bbb74f98465ff433ad_bytes32);
 }
