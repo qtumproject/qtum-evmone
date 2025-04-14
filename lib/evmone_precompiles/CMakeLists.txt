@@ -25,3 +25,5 @@ target_sources(
     kzg.hpp
     kzg.cpp
 )
+
+add_standalone_library(evmone_precompiles)
