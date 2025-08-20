@@ -32,7 +32,7 @@ class StackSpace
     {
         static constexpr auto alignment = sizeof(uint256);
         static constexpr auto size = limit * sizeof(uint256);
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined __MINGW32__
         // MSVC doesn't support aligned_alloc() but _aligned_malloc() can be used instead.
         const auto p = _aligned_malloc(size, alignment);
 #else
@@ -46,7 +46,7 @@ class StackSpace
         // TODO(C++23): static
         void operator()(void* p) noexcept
         {
-#ifdef _MSC_VER
+#if defined _MSC_VER || defined __MINGW32__
             // For MSVC the _aligned_malloc() must be paired with _aligned_free().
             _aligned_free(p);
 #else

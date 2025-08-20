@@ -6,6 +6,9 @@
 #include "eof.hpp"
 #include "instructions.hpp"
 #include <memory>
+#ifdef QTUM_BUILD
+#include "compat.hpp"
+#endif
 
 namespace evmone::baseline
 {

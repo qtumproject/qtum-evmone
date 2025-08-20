@@ -148,6 +148,9 @@ endif()
 if(TARGET evmone-bench)
     list(APPEND install_targets evmone-bench)
 endif()
+if(TARGET evmone_precompiles-standalone)
+    list(APPEND install_targets evmone_precompiles-standalone)
+endif()
 
 set_target_properties(
     ${install_targets} PROPERTIES
