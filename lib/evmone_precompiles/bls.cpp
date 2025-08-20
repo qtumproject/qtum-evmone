@@ -3,9 +3,6 @@
 #include <memory>
 #include <optional>
 #include <vector>
-#ifdef QTUM_BUILD
-#include "../evmone/compat.hpp"
-#endif
 
 namespace evmone::crypto::bls
 {
