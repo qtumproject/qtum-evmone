@@ -62,8 +62,8 @@ To build the evmone EVMC module (shared library), test, and benchmark:
 
 1. Fetch the source code:
    ```
-   git clone --recursive https://github.com/ethereum/evmone
-   cd evmone
+   git clone --recursive https://github.com/qtumproject/qtum-evmone
+   cd qtum-evmone
    ```
 
 2. Configure the project build and dependencies:
