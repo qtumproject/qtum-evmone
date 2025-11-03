@@ -4,35 +4,78 @@
 #pragma once
 
 #include <evmc/bytes.hpp>
-#include <evmc/evmc.h>
+#include <evmc/evmc.hpp>
 #include <evmc/utils.h>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <string>
-#include <variant>
+#include <string_view>
 #include <vector>
 
 namespace evmone
 {
+/// Loads big endian int16_t from data. Unsafe.
+/// TODO: Move it to intx
+inline int16_t read_int16_be(auto it) noexcept
+{
+    const uint8_t h = *it++;
+    const uint8_t l = *it;
+    return static_cast<int16_t>((h << 8) | l);
+}
+
+/// Loads big endian uint16_t from data. Unsafe.
+/// TODO: Move it to intx
+inline uint16_t read_uint16_be(auto it) noexcept
+{
+    const uint8_t h = *it++;
+    const uint8_t l = *it;
+    return static_cast<uint16_t>((h << 8) | l);
+}
+
+/// Loads big endian uint32_t from data. Unsafe.
+/// TODO: Move it to intx
+inline uint32_t read_uint32_be(auto it) noexcept
+{
+    const uint8_t b3 = *it++;
+    const uint8_t b2 = *it++;
+    const uint8_t b1 = *it++;
+    const uint8_t b0 = *it;
+    return static_cast<uint32_t>((b3 << 24) | (b2 << 16) | (b1 << 8) | b0);
+}
+
 using evmc::bytes;
 using evmc::bytes_view;
+using namespace evmc::literals;
+
+constexpr uint8_t EOF_MAGIC_BYTES[] = {0xef, 0x00};
+constexpr bytes_view EOF_MAGIC{EOF_MAGIC_BYTES, std::size(EOF_MAGIC_BYTES)};
+
+/// The value returned by EXTCODEHASH of an address with EOF code.
+/// See EIP-3540: https://eips.ethereum.org/EIPS/eip-3540#changes-to-execution-semantics.
+static constexpr auto EOF_CODE_HASH_SENTINEL =
+    0x9dbf3648db8210552e9c4f75c6a1c3057c0ca432043bd648be15fe7be05646f5_bytes32;
 
 struct EOFCodeType
 {
-    uint8_t inputs;             ///< Number of code inputs.
-    uint8_t outputs;            ///< Number of code outputs.
-    uint16_t max_stack_height;  ///< Maximum stack height reached in the code.
+    uint8_t inputs;               ///< Number of code inputs.
+    uint8_t outputs;              ///< Number of code outputs.
+    uint16_t max_stack_increase;  ///< Maximum stack height above the inputs reached in the code.
 
-    EOFCodeType(uint8_t inputs_, uint8_t outputs_, uint16_t max_stack_height_)
-      : inputs{inputs_}, outputs{outputs_}, max_stack_height{max_stack_height_}
+    EOFCodeType(uint8_t inputs_, uint8_t outputs_, uint16_t max_stack_increase_)
+      : inputs{inputs_}, outputs{outputs_}, max_stack_increase{max_stack_increase_}
     {}
 };
 
 struct EOF1Header
 {
+    /// Size of a type entry in bytes.
+    static constexpr size_t TYPE_ENTRY_SIZE = sizeof(EOFCodeType);
+
     /// The EOF version, 0 means legacy code.
     uint8_t version = 0;
+
+    /// Offset of the type section start.
+    size_t type_section_offset = 0;
 
     /// Size of every code section.
     std::vector<uint16_t> code_sizes;
@@ -47,13 +90,26 @@ struct EOF1Header
     /// @data_size.
     uint16_t data_size = 0;
     /// Offset of data container section start.
-    uint16_t data_offset = 0;
+    uint32_t data_offset = 0;
     /// Size of every container section.
-    std::vector<uint16_t> container_sizes;
+    std::vector<uint32_t> container_sizes;
     /// Offset of every container section start;
-    std::vector<uint16_t> container_offsets;
+    std::vector<uint32_t> container_offsets;
 
-    std::vector<EOFCodeType> types;
+    /// A helper to extract reference to a specific type section.
+    [[nodiscard]] EOFCodeType get_type(bytes_view container, size_t type_idx) const noexcept
+    {
+        const auto offset = type_section_offset + type_idx * TYPE_ENTRY_SIZE;
+        // TODO: Make EOFCodeType aggregate type and use designated initializers.
+        return EOFCodeType{
+            container[offset],                      // inputs
+            container[offset + 1],                  // outputs
+            read_uint16_be(&container[offset + 2])  // max_stack_height
+        };
+    }
+
+    /// Returns the number of types in the type section.
+    [[nodiscard]] size_t get_type_count() const noexcept { return code_sizes.size(); }
 
     /// A helper to extract reference to a specific code section.
     [[nodiscard]] bytes_view get_code(bytes_view container, size_t code_idx) const noexcept
@@ -69,11 +125,10 @@ struct EOF1Header
     }
 
     /// A helper to check whether the container has data section body size equal to declare size.
+    /// Containers with truncated data section cannot be init-containers.
     [[nodiscard]] bool has_full_data(size_t container_size) const noexcept
     {
-        // Containers with truncated data section cannot be initcontainers.
-        const auto truncated_data = static_cast<size_t>(data_offset + data_size) > container_size;
-        return !truncated_data;
+        return size_t{data_offset} + data_size <= container_size;
     }
 
     /// A helper to extract reference to a specific container section.
@@ -121,11 +176,11 @@ enum class EOFValidationError
     too_many_code_sections,
     invalid_type_section_size,
     invalid_first_section_type,
-    invalid_max_stack_height,
+    invalid_max_stack_increase,
     no_terminating_instruction,
     stack_height_mismatch,
     stack_higher_than_outputs_required,
-    max_stack_height_above_limit,
+    max_stack_increase_above_limit,
     inputs_outputs_num_above_limit,
     unreachable_instructions,
     stack_underflow,
@@ -143,25 +198,19 @@ enum class EOFValidationError
     incompatible_container_kind,
     container_size_above_limit,
     unreferenced_subcontainer,
-
-    impossible,
 };
 
 enum class ContainerKind : uint8_t
 {
-    /// Container that uses RETURNCONTRACT. Can be used by EOFCREATE/Creation transaction.
+    /// Container that uses RETURNCODE. Can be used by EOFCREATE/TXCREATE.
     initcode,
-    /// Container that uses STOP/RETURN. Can be returned by RETURNCONTRACT.
+    /// Container that uses STOP/RETURN. Can be returned by RETURNCODE.
     runtime,
 };
 
 /// Determines the EOF version of the container by inspecting container's EOF prefix.
 /// If the prefix is missing or invalid, 0 is returned meaning legacy code.
 [[nodiscard]] uint8_t get_eof_version(bytes_view container) noexcept;
-
-/// Validates the header and returns its representation if successful.
-[[nodiscard]] EVMC_EXPORT std::variant<EOF1Header, EOFValidationError> validate_header(
-    evmc_revision rev, bytes_view container) noexcept;
 
 /// Validates whether given container is a valid EOF according to the rules of given revision.
 [[nodiscard]] EVMC_EXPORT EOFValidationError validate_eof(
@@ -172,23 +221,5 @@ enum class ContainerKind : uint8_t
 
 /// Output operator for EOFValidationError.
 EVMC_EXPORT std::ostream& operator<<(std::ostream& os, EOFValidationError err) noexcept;
-
-/// Loads big endian int16_t from data. Unsafe.
-/// TODO: Move it to intx
-inline int16_t read_int16_be(auto it) noexcept
-{
-    const uint8_t h = *it++;
-    const uint8_t l = *it;
-    return static_cast<int16_t>((h << 8) | l);
-}
-
-/// Loads big endian uint16_t from data. Unsafe.
-/// TODO: Move it to intx
-inline uint16_t read_uint16_be(auto it) noexcept
-{
-    const uint8_t h = *it++;
-    const uint8_t l = *it;
-    return static_cast<uint16_t>((h << 8) | l);
-}
 
 }  // namespace evmone

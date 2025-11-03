@@ -63,7 +63,7 @@
     ON_OPCODE_IDENTIFIER(OP_SHL, shl)                         \
     ON_OPCODE_IDENTIFIER(OP_SHR, shr)                         \
     ON_OPCODE_IDENTIFIER(OP_SAR, sar)                         \
-    ON_OPCODE_UNDEFINED(0x1e)                                 \
+    ON_OPCODE_IDENTIFIER(OP_CLZ, clz)                         \
     ON_OPCODE_UNDEFINED(0x1f)                                 \
                                                               \
     ON_OPCODE_IDENTIFIER(OP_KECCAK256, keccak256)             \
@@ -283,8 +283,8 @@
     ON_OPCODE_UNDEFINED(0xea)                                 \
     ON_OPCODE_UNDEFINED(0xeb)                                 \
     ON_OPCODE_IDENTIFIER(OP_EOFCREATE, eofcreate)             \
-    ON_OPCODE_UNDEFINED(0xed)                                 \
-    ON_OPCODE_IDENTIFIER(OP_RETURNCONTRACT, returncontract)   \
+    ON_OPCODE_IDENTIFIER(OP_TXCREATE, txcreate)               \
+    ON_OPCODE_IDENTIFIER(OP_RETURNCODE, returncode)           \
     ON_OPCODE_UNDEFINED(0xef)                                 \
                                                               \
     ON_OPCODE_IDENTIFIER(OP_CREATE, create)                   \

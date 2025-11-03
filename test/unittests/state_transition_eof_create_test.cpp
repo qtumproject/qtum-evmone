@@ -13,9 +13,24 @@ namespace
 constexpr bytes32 Salt{0xff};
 }
 
+
+TEST_F(state_transition, create_tx_with_eof_initcode)
+{
+    rev = EVMC_EXPERIMENTAL;
+
+    const bytecode init_container = eof_bytecode(ret(0, 1));
+
+    tx.data = init_container;
+    const auto create_address = compute_create_address(tx.sender, pre.get(tx.sender).nonce);
+
+    expect.post[tx.sender].nonce = pre.get(tx.sender).nonce + 1;
+    expect.status = EVMC_FAILURE;
+    expect.post[create_address].exists = false;
+}
+
 TEST_F(state_transition, create_with_eof_initcode)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -59,7 +74,7 @@ TEST_F(state_transition, create_with_eof_initcode_cancun)
 
 TEST_F(state_transition, create2_with_eof_initcode)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -105,7 +120,7 @@ TEST_F(state_transition, create2_with_eof_initcode_cancun)
 
 TEST_F(state_transition, creation_tx_deploying_eof)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const bytecode deploy_container = eof_bytecode(bytecode(OP_INVALID));
     const auto init_code = mstore(0, push(deploy_container)) +
@@ -122,7 +137,7 @@ TEST_F(state_transition, creation_tx_deploying_eof)
 
 TEST_F(state_transition, create_deploying_eof)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -148,7 +163,7 @@ TEST_F(state_transition, create_deploying_eof)
 
 TEST_F(state_transition, create2_deploying_eof)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -175,11 +190,11 @@ TEST_F(state_transition, create2_deploying_eof)
 
 TEST_F(state_transition, eofcreate_empty_auxdata)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto deploy_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data);
 
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code = eofcreate().container(0).input(0, 0).salt(Salt) + ret_top();
@@ -190,22 +205,21 @@ TEST_F(state_transition, eofcreate_empty_auxdata)
     pre.insert(*tx.to, {.nonce = 1, .code = factory_container});
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[create_address].code = deploy_container;
     expect.post[create_address].nonce = 1;
 }
 
 TEST_F(state_transition, eofcreate_auxdata_equal_to_declared)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto aux_data = "aabbccddeeff"_hex;
     const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size() + aux_data.size());
     const auto deploy_container =
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data, deploy_data_size);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code = calldatacopy(0, 0, OP_CALLDATASIZE) +
@@ -222,14 +236,14 @@ TEST_F(state_transition, eofcreate_auxdata_equal_to_declared)
     const auto expected_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data + aux_data);
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[create_address].code = expected_container;
     expect.post[create_address].nonce = 1;
 }
 
 TEST_F(state_transition, eofcreate_auxdata_longer_than_declared)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto aux_data1 = "aabbccdd"_hex;
     const auto aux_data2 = "eeff"_hex;
@@ -237,8 +251,7 @@ TEST_F(state_transition, eofcreate_auxdata_longer_than_declared)
     const auto deploy_container =
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data, deploy_data_size);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code = calldatacopy(0, 0, OP_CALLDATASIZE) +
@@ -256,22 +269,21 @@ TEST_F(state_transition, eofcreate_auxdata_longer_than_declared)
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data + aux_data1 + aux_data2);
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[create_address].code = expected_container;
     expect.post[create_address].nonce = 1;
 }
 
 TEST_F(state_transition, eofcreate_auxdata_shorter_than_declared)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto aux_data = "aabbccddeeff"_hex;
     const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size() + aux_data.size() + 1);
     const auto deploy_container =
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data, deploy_data_size);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const auto init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code =
@@ -291,7 +303,7 @@ TEST_F(state_transition, eofcreate_auxdata_shorter_than_declared)
 
 TEST_F(state_transition, eofcreate_dataloadn_referring_to_auxdata)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = bytes(64, 0);
     const auto aux_data = bytes(32, 0);
     const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size() + aux_data.size());
@@ -299,7 +311,7 @@ TEST_F(state_transition, eofcreate_dataloadn_referring_to_auxdata)
     const auto deploy_code = bytecode(OP_DATALOADN) + "0040" + ret_top();
     const auto deploy_container = eof_bytecode(deploy_code, 2).data(deploy_data, deploy_data_size);
 
-    const auto init_code = returncontract(0, 0, 32);
+    const auto init_code = returncode(0, 0, 32);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code =
@@ -313,7 +325,7 @@ TEST_F(state_transition, eofcreate_dataloadn_referring_to_auxdata)
     const auto expected_container = eof_bytecode(deploy_code, 2).data(deploy_data + aux_data);
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x00_bytes32] = to_bytes32(create_address);
     expect.post[*tx.to].storage[0x01_bytes32] = 0x01_bytes32;
     expect.post[create_address].code = expected_container;
@@ -322,7 +334,7 @@ TEST_F(state_transition, eofcreate_dataloadn_referring_to_auxdata)
 
 TEST_F(state_transition, eofcreate_with_auxdata_and_subcontainer)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto aux_data = "aabbccddeeff"_hex;
     const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size() + aux_data.size());
@@ -330,8 +342,7 @@ TEST_F(state_transition, eofcreate_with_auxdata_and_subcontainer)
                                       .container(eof_bytecode(OP_INVALID))
                                       .data(deploy_data, deploy_data_size);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code =
@@ -351,7 +362,7 @@ TEST_F(state_transition, eofcreate_with_auxdata_and_subcontainer)
                                         .data(deploy_data + aux_data);
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x00_bytes32] = to_bytes32(create_address);
     expect.post[*tx.to].storage[0x01_bytes32] = 0x01_bytes32;
     expect.post[create_address].code = expected_container;
@@ -360,7 +371,7 @@ TEST_F(state_transition, eofcreate_with_auxdata_and_subcontainer)
 
 TEST_F(state_transition, eofcreate_revert_empty_returndata)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto init_code = revert(0, 0);
     const auto init_container = eof_bytecode(init_code, 2);
 
@@ -380,7 +391,7 @@ TEST_F(state_transition, eofcreate_revert_empty_returndata)
 
 TEST_F(state_transition, eofcreate_revert_non_empty_returndata)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto init_code = mstore8(0, 0xaa) + revert(0, 1);
     const auto init_container = eof_bytecode(init_code, 2);
 
@@ -400,7 +411,7 @@ TEST_F(state_transition, eofcreate_revert_non_empty_returndata)
 
 TEST_F(state_transition, eofcreate_initcontainer_aborts)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto init_code = bytecode{Opcode{OP_INVALID}};
     const auto init_container = eof_bytecode(init_code, 0);
 
@@ -418,7 +429,7 @@ TEST_F(state_transition, eofcreate_initcontainer_aborts)
 
 TEST_F(state_transition, eofcreate_deploy_container_max_size)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -430,7 +441,7 @@ TEST_F(state_transition, eofcreate_deploy_container_max_size)
     EXPECT_EQ(deploy_container.size(), 0x6000);
 
     // no aux data
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code =
@@ -442,14 +453,14 @@ TEST_F(state_transition, eofcreate_deploy_container_max_size)
     pre.insert(*tx.to, {.nonce = 1, .code = factory_container});
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x00_bytes32] = to_bytes32(create_address);
     expect.post[create_address].code = deploy_container;
 }
 
 TEST_F(state_transition, eofcreate_deploy_container_too_large)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -461,7 +472,7 @@ TEST_F(state_transition, eofcreate_deploy_container_too_large)
     EXPECT_EQ(deploy_container.size(), 0x6001);
 
     // no aux data
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     const auto init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code =
@@ -478,7 +489,7 @@ TEST_F(state_transition, eofcreate_deploy_container_too_large)
 
 TEST_F(state_transition, eofcreate_appended_data_size_larger_than_64K)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -487,8 +498,7 @@ TEST_F(state_transition, eofcreate_appended_data_size_larger_than_64K)
     const auto deploy_data = "aa"_hex;
     const auto deploy_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     static constexpr bytes32 salt2{0xfe};
@@ -508,7 +518,7 @@ TEST_F(state_transition, eofcreate_appended_data_size_larger_than_64K)
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 2;  // 1 successful creation + 1 hard fail
     expect.post[*tx.to].storage[0x00_bytes32] = 0x00_bytes32;
-    const auto create_address = compute_create2_address(*tx.to, salt2, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, salt2);
     expect.post[*tx.to].storage[0x01_bytes32] = to_bytes32(create_address);
     expect.post[create_address].code = deploy_container;
     expect.post[create_address].nonce = 1;
@@ -516,7 +526,7 @@ TEST_F(state_transition, eofcreate_appended_data_size_larger_than_64K)
 
 TEST_F(state_transition, eofcreate_deploy_container_with_aux_data_too_large)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -528,7 +538,7 @@ TEST_F(state_transition, eofcreate_deploy_container_with_aux_data_too_large)
     EXPECT_EQ(deploy_container.size(), 0x6000);
 
     // 1 byte aux data
-    const auto init_code = returncontract(0, 0, 1);
+    const auto init_code = returncode(0, 0, 1);
     const auto init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code =
@@ -545,7 +555,7 @@ TEST_F(state_transition, eofcreate_deploy_container_with_aux_data_too_large)
 
 TEST_F(state_transition, eofcreate_nested_eofcreate)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto deploy_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data);
 
@@ -553,11 +563,11 @@ TEST_F(state_transition, eofcreate_nested_eofcreate)
     const auto deploy_container_nested =
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data_nested);
 
-    const auto init_code_nested = returncontract(0, 0, 0);
+    const auto init_code_nested = returncode(0, 0, 0);
     const bytecode init_container_nested =
         eof_bytecode(init_code_nested, 2).container(deploy_container_nested);
 
-    const auto init_code = sstore(0, eofcreate().container(1).salt(Salt)) + returncontract(0, 0, 0);
+    const auto init_code = sstore(0, eofcreate().container(1).salt(Salt)) + returncode(0, 0, 0);
     const bytecode init_container =
         eof_bytecode(init_code, 4).container(deploy_container).container(init_container_nested);
 
@@ -569,12 +579,11 @@ TEST_F(state_transition, eofcreate_nested_eofcreate)
     pre.insert(*tx.to, {.nonce = 1, .code = factory_container});
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x00_bytes32] = to_bytes32(create_address);
     expect.post[create_address].code = deploy_container;
     expect.post[create_address].nonce = 2;
-    const auto create_address_nested =
-        compute_create2_address(create_address, Salt, init_container_nested);
+    const auto create_address_nested = compute_eofcreate_address(create_address, Salt);
     expect.post[create_address].storage[0x00_bytes32] = to_bytes32(create_address_nested);
     expect.post[create_address_nested].code = deploy_container_nested;
     expect.post[create_address_nested].nonce = 1;
@@ -582,13 +591,13 @@ TEST_F(state_transition, eofcreate_nested_eofcreate)
 
 TEST_F(state_transition, eofcreate_nested_eofcreate_revert)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const auto deploy_data_nested = "ffffff"_hex;
     const auto deploy_container_nested =
         eof_bytecode(bytecode(OP_INVALID)).data(deploy_data_nested);
 
-    const auto init_code_nested = returncontract(0, 0, 0);
+    const auto init_code_nested = returncode(0, 0, 0);
     const auto init_container_nested =
         eof_bytecode(init_code_nested, 2).container(deploy_container_nested);
 
@@ -608,12 +617,11 @@ TEST_F(state_transition, eofcreate_nested_eofcreate_revert)
 
 TEST_F(state_transition, eofcreate_caller_balance_too_low)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;
     const auto deploy_container = eof_bytecode(bytecode{Opcode{OP_INVALID}}).data(deploy_data);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const auto init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code =
@@ -632,10 +640,10 @@ TEST_F(state_transition, eofcreate_caller_balance_too_low)
 
 TEST_F(state_transition, eofcreate_not_enough_gas_for_initcode_charge)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
 
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     auto init_container = eof_bytecode(init_code, 2).container(deploy_container);
     const uint16_t init_data_size = std::numeric_limits<uint16_t>::max() / 2 -
                                     static_cast<uint16_t>(bytecode(init_container).size());
@@ -660,7 +668,7 @@ TEST_F(state_transition, eofcreate_not_enough_gas_for_initcode_charge)
 
 TEST_F(state_transition, eofcreate_not_enough_gas_for_mem_expansion)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
     // max size aux data
     const auto aux_data_size = static_cast<uint16_t>(
@@ -669,8 +677,7 @@ TEST_F(state_transition, eofcreate_not_enough_gas_for_mem_expansion)
     EXPECT_EQ(
         bytecode(deploy_container).size() + aux_data_size, std::numeric_limits<uint16_t>::max());
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
     const auto factory_code =
@@ -693,9 +700,9 @@ TEST_F(state_transition, eofcreate_not_enough_gas_for_mem_expansion)
     expect.post[*tx.to].storage[0x00_bytes32] = 0x00_bytes32;
 }
 
-TEST_F(state_transition, returncontract_not_enough_gas_for_mem_expansion)
+TEST_F(state_transition, returncode_not_enough_gas_for_mem_expansion)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
@@ -708,7 +715,7 @@ TEST_F(state_transition, returncontract_not_enough_gas_for_mem_expansion)
     EXPECT_EQ(
         bytecode(deploy_container).size() + aux_data_size, std::numeric_limits<uint16_t>::max());
 
-    const auto init_code = returncontract(0, 0, aux_data_size);
+    const auto init_code = returncode(0, 0, aux_data_size);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code = eofcreate().container(0).salt(Salt) + OP_POP + OP_STOP;
@@ -732,10 +739,10 @@ TEST_F(state_transition, eofcreate_clears_returndata)
 {
     static constexpr auto returning_address = 0x3000_address;
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_container = eof_bytecode(OP_STOP);
 
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code = sstore(0, extcall(returning_address)) + sstore(1, returndatasize()) +
@@ -753,7 +760,7 @@ TEST_F(state_transition, eofcreate_clears_returndata)
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 1;
     expect.post[*tx.to].storage[0x00_bytes32] = 0x00_bytes32;
     expect.post[*tx.to].storage[0x01_bytes32] = 0x0a_bytes32;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x02_bytes32] = to_bytes32(create_address);
     expect.post[*tx.to].storage[0x03_bytes32] = 0x00_bytes32;
     expect.post[*tx.to].storage[0x04_bytes32] = 0x01_bytes32;
@@ -764,14 +771,14 @@ TEST_F(state_transition, eofcreate_clears_returndata)
 
 TEST_F(state_transition, eofcreate_failure_after_eofcreate_success)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     block.gas_limit = 10'000'000;
     tx.gas_limit = block.gas_limit;
     pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
 
     const auto deploy_container = eof_bytecode(OP_STOP);
 
-    const auto init_code = returncontract(0, 0, 0);
+    const auto init_code = returncode(0, 0, 0);
     const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
 
     const auto factory_code = sstore(0, eofcreate().container(0).salt(Salt)) +
@@ -784,7 +791,7 @@ TEST_F(state_transition, eofcreate_failure_after_eofcreate_success)
     pre.insert(*tx.to, {.nonce = 1, .code = factory_container});
 
     expect.post[*tx.to].nonce = pre.get(*tx.to).nonce + 2;
-    const auto create_address = compute_create2_address(*tx.to, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(*tx.to, Salt);
     expect.post[*tx.to].storage[0x00_bytes32] = to_bytes32(create_address);
     expect.post[*tx.to].storage[0x01_bytes32] = 0x00_bytes32;
     expect.post[*tx.to].storage[0x02_bytes32] = 0x00_bytes32;
@@ -795,7 +802,7 @@ TEST_F(state_transition, eofcreate_failure_after_eofcreate_success)
 
 TEST_F(state_transition, eofcreate_call_created_contract)
 {
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
     const auto deploy_data = "abcdef"_hex;  // 3 bytes
     const auto static_aux_data =
         "aabbccdd00000000000000000000000000000000000000000000000000000000"_hex;  // 32 bytes
@@ -809,11 +816,10 @@ TEST_F(state_transition, eofcreate_call_created_contract)
                              ret_top();
     const auto deploy_container = eof_bytecode(deploy_code, 2).data(deploy_data, deploy_data_size);
 
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
+    const auto init_code = calldatacopy(0, 0, OP_CALLDATASIZE) + returncode(0, 0, OP_CALLDATASIZE);
     const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
 
-    const auto create_address = compute_create2_address(To, Salt, init_container);
+    const auto create_address = compute_eofcreate_address(To, Salt);
 
     const auto factory_code =
         calldatacopy(0, 0, OP_CALLDATASIZE) +
@@ -845,356 +851,4 @@ TEST_F(state_transition, eofcreate_call_created_contract)
     expect.post[*tx.to].storage[0x03_bytes32] = dynamic_aux_data_32;
     expect.post[*tx.to].storage[0x04_bytes32] = 0x01_bytes32;
     expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = deploy_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_deploy_data)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_data = "abcdef"_hex;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data);
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = deploy_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_static_auxdata_in_calldata)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_data = "abcdef"_hex;
-    // aux_data will be appended as calldata to the creation tx input, and later appended to the
-    // deployed contract's data section on RETURNCONTRACT.
-    const auto aux_data = "aabbccddeeff"_hex;
-    const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size());
-    const auto aux_data_size = static_cast<uint16_t>(aux_data.size());
-
-    // aux_data_size included in the declared data section size - static data.
-    const auto deploy_container =
-        eof_bytecode(bytecode(OP_INVALID)).data(deploy_data, deploy_data_size + aux_data_size);
-
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
-    const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
-
-    tx.data = init_container + bytecode(aux_data);
-    const auto expected_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data + aux_data);
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = expected_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_dynamic_auxdata_in_calldata)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_data = "abcdef"_hex;
-    // aux_data will be appended as calldata to the creation tx input, and later appended the
-    // deployed contract's data section on RETURNCONTRACT.
-    const auto aux_data = "aabbccddeeff"_hex;
-    const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size());
-
-    // aux_data_size not included in the declared data section size - dynamic data.
-    const auto deploy_container =
-        eof_bytecode(bytecode(OP_INVALID)).data(deploy_data, deploy_data_size);
-
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
-    const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
-
-    tx.data = init_container + bytecode(aux_data);
-    const auto expected_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data + aux_data);
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = expected_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_dataloadn_referring_to_auxdata)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_data = bytes(64, 0x01);
-    const auto aux_data = bytes(32, 0x03);
-    const auto deploy_data_size = static_cast<uint16_t>(deploy_data.size() + aux_data.size());
-    // DATALOADN{64} - referring to data that will be appended as aux_data
-    const auto deploy_code = bytecode(OP_DATALOADN) + "0040" + ret_top();
-    const auto deploy_container = eof_bytecode(deploy_code, 2).data(deploy_data, deploy_data_size);
-
-    const auto init_code =
-        calldatacopy(0, 0, OP_CALLDATASIZE) + returncontract(0, 0, OP_CALLDATASIZE);
-    const bytecode init_container = eof_bytecode(init_code, 3).container(deploy_container);
-
-    tx.data = init_container + bytecode(aux_data);
-
-    const auto expected_container = eof_bytecode(deploy_code, 2).data(deploy_data + aux_data);
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = expected_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_initcontainer_aborts)
-{
-    rev = EVMC_PRAGUE;
-    const auto init_code = bytecode{Opcode{OP_INVALID}};
-    const bytecode init_container = eof_bytecode(init_code, 0);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_INVALID_INSTRUCTION;
-}
-
-TEST_F(state_transition, creation_tx_initcontainer_return)
-{
-    rev = EVMC_PRAGUE;
-    const auto init_code = bytecode{0xaa + ret_top()};
-    const bytecode init_container = eof_bytecode(init_code, 2);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-}
-
-TEST_F(state_transition, creation_tx_initcontainer_stop)
-{
-    rev = EVMC_PRAGUE;
-    const auto init_code = bytecode{Opcode{OP_STOP}};
-    const bytecode init_container = eof_bytecode(init_code, 0);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-}
-
-TEST_F(state_transition, creation_tx_initcontainer_max_size)
-{
-    rev = EVMC_PRAGUE;
-    block.gas_limit = 10'000'000;
-    tx.gas_limit = block.gas_limit;
-    pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
-
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container_no_data = eof_bytecode(init_code, 2).container(deploy_container);
-    const auto data_size = 0xc000 - init_container_no_data.size();
-    const bytecode init_container =
-        eof_bytecode(init_code, 2).container(deploy_container).data(bytes(data_size, 0));
-    EXPECT_EQ(init_container.size(), 0xc000);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = deploy_container;
-    expect.post[create_address].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_initcontainer_too_large)
-{
-    rev = EVMC_PRAGUE;
-    block.gas_limit = 10'000'000;
-    tx.gas_limit = block.gas_limit;
-    pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
-
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container_no_data = eof_bytecode(init_code, 2).container(deploy_container);
-    const auto data_size = 0xc001 - init_container_no_data.size();
-    const bytecode init_container =
-        eof_bytecode(init_code, 2).container(deploy_container).data(bytes(data_size, 0));
-    EXPECT_EQ(init_container.size(), 0xc001);
-
-    tx.data = init_container;
-
-    expect.tx_error = INIT_CODE_SIZE_LIMIT_EXCEEDED;
-}
-
-TEST_F(state_transition, creation_tx_deploy_container_max_size)
-{
-    rev = EVMC_PRAGUE;
-    block.gas_limit = 10'000'000;
-    tx.gas_limit = block.gas_limit;
-    pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
-
-    const auto eof_header_size =
-        static_cast<int>(bytecode{eof_bytecode(Opcode{OP_INVALID})}.size() - 1);
-    const auto deploy_code = (0x5fff - eof_header_size) * bytecode{Opcode{OP_JUMPDEST}} + OP_STOP;
-    const bytecode deploy_container = eof_bytecode(deploy_code);
-    EXPECT_EQ(deploy_container.size(), 0x6000);
-
-    // no aux data
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = deploy_container;
-}
-
-TEST_F(state_transition, creation_tx_deploy_container_too_large)
-{
-    rev = EVMC_PRAGUE;
-    block.gas_limit = 10'000'000;
-    tx.gas_limit = block.gas_limit;
-    pre.get(tx.sender).balance = tx.gas_limit * tx.max_gas_price + tx.value + 1;
-
-    const auto eof_header_size =
-        static_cast<int>(bytecode{eof_bytecode(Opcode{OP_INVALID})}.size() - 1);
-    const auto deploy_code = (0x6000 - eof_header_size) * bytecode{Opcode{OP_JUMPDEST}} + OP_STOP;
-    const bytecode deploy_container = eof_bytecode(deploy_code);
-    EXPECT_EQ(deploy_container.size(), 0x6001);
-
-    // no aux data
-    const auto init_code = returncontract(0, 0, 0);
-    const bytecode init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-}
-
-TEST_F(state_transition, creation_tx_nested_eofcreate)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_data = "abcdef"_hex;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID)).data(deploy_data);
-
-    const auto deploy_data_nested = "ffffff"_hex;
-    const auto deploy_container_nested =
-        eof_bytecode(bytecode(OP_INVALID)).data(deploy_data_nested);
-
-    const auto init_code_nested = returncontract(0, 0, 0);
-    const bytecode init_container_nested =
-        eof_bytecode(init_code_nested, 2).container(deploy_container_nested);
-
-    const auto init_code = sstore(0, eofcreate().container(1).salt(Salt)) + returncontract(0, 0, 0);
-    const bytecode init_container =
-        eof_bytecode(init_code, 4).container(deploy_container).container(init_container_nested);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    const auto create_address = compute_create_address(Sender, pre.get(Sender).nonce);
-    expect.post[create_address].code = deploy_container;
-    expect.post[create_address].nonce = 2;
-    const auto create_address_nested =
-        compute_create2_address(create_address, Salt, init_container_nested);
-    expect.post[create_address].storage[0x00_bytes32] = to_bytes32(create_address_nested);
-    expect.post[create_address_nested].code = deploy_container_nested;
-    expect.post[create_address_nested].nonce = 1;
-}
-
-TEST_F(state_transition, creation_tx_invalid_initcode_header)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    bytes init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    assert(init_container[3] == 0x01);
-    init_container[3] = 0x04;  // Data section as first section in the header invalid.
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-    expect.gas_used = 53516;
-}
-
-TEST_F(state_transition, creation_tx_invalid_initcode)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytes init_container =
-        eof_bytecode(init_code, 123).container(deploy_container);  // Invalid EOF
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-    expect.gas_used = 53516;
-}
-
-TEST_F(state_transition, creation_tx_truncated_data_initcode)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytes init_container =
-        eof_bytecode(init_code, 2).data("", 1).container(deploy_container);  // Truncated data
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-    expect.gas_used = 53528;
-}
-
-TEST_F(state_transition, creation_tx_invalid_deploycode)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID), 123);  // Invalid EOF
-
-    const auto init_code = returncontract(0, 0, 0);
-    const bytes init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-    expect.gas_used = 53528;
-}
-
-TEST_F(state_transition, creation_tx_invalid_eof_version)
-{
-    rev = EVMC_PRAGUE;
-    const auto deploy_container = eof_bytecode(bytecode(OP_INVALID));
-
-    const auto init_code = returncontract(0, 0, 0);
-    bytes init_container = eof_bytecode(init_code, 2).container(deploy_container);
-
-    assert(init_container[2] == 0x01);
-    init_container[2] = 0x02;
-
-    tx.data = init_container;
-
-    expect.post[Sender].nonce = pre.get(Sender).nonce + 1;
-    expect.status = EVMC_FAILURE;
-    expect.gas_used = 53516;
 }

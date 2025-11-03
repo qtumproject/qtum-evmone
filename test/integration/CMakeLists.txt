@@ -29,22 +29,22 @@ DUP1,4
 {\"pc\":6,\"op\":3,\"gas\":\"0xf4234\",\"gasCost\":\"0x3\",\"memSize\":0,\"stack\":\\[\"0x0\",\"0x4\"\\],\"depth\":1,\"refund\":0,\"opName\":\"SUB\"}
 ")
 
-    add_test(NAME ${PREFIX}/validate_eof COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 13 EF0001)
+    add_test(NAME ${PREFIX}/validate_eof COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 15 EF0001)
     set_tests_properties(
         ${PREFIX}/validate_eof PROPERTIES PASS_REGULAR_EXPRESSION
         "contract validation failure")
         
-    add_test(NAME ${PREFIX}/validate_eof_success COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 13 EF00010100040200010001040000000080000000)
+    add_test(NAME ${PREFIX}/validate_eof_success COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 15 EF00010100040200010001FF0000000080000000)
     set_tests_properties(
         ${PREFIX}/validate_eof_success PROPERTIES PASS_REGULAR_EXPRESSION
         "Result:   success")
         
-    add_test(NAME ${PREFIX}/validate_eof_create COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 13 --create EF00010100040200010001040000000080000000)
+    add_test(NAME ${PREFIX}/validate_eof_create COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 15 --create EF00010100040200010001FF0000000080000000)
     set_tests_properties(
         ${PREFIX}/validate_eof_create PROPERTIES PASS_REGULAR_EXPRESSION
         "contract validation failure")
         
-    add_test(NAME ${PREFIX}/validate_eof_create_success COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 13 --create EF00010100040200010004030001001404000000008000025F5FEE00EF00010100040200010001040000000080000000)
+    add_test(NAME ${PREFIX}/validate_eof_create_success COMMAND evmc::tool --vm $<TARGET_FILE:evmone>,validate_eof run --rev 15 --create EF0001010004020001000403000100000014FF000000008000025F5FEE00EF00010100040200010001FF0000000080000000)
     set_tests_properties(
         ${PREFIX}/validate_eof_create_success PROPERTIES PASS_REGULAR_EXPRESSION
         "Result:   success")
@@ -56,6 +56,6 @@ add_subdirectory(export)
 add_subdirectory(statetest)
 add_subdirectory(t8n)
 
-get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
+get_directory_property(ALL_TESTS TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES ENVIRONMENT LLVM_PROFILE_FILE=${CMAKE_BINARY_DIR}/integration-%p.profraw)
 

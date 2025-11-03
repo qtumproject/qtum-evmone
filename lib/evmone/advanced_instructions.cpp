@@ -6,6 +6,9 @@
 #include "instructions.hpp"
 #include "instructions_traits.hpp"
 
+// TODO: This warning suppression may be lifted, but the situation in this file is complicated.
+// NOLINTBEGIN(misc-use-internal-linkage)
+
 namespace evmone::advanced
 {
 namespace instr
@@ -310,7 +313,8 @@ constexpr std::array<instruction_exec_fn, 256> instruction_implementations = [](
     table[OP_SWAPN] = op_undefined;
     table[OP_EXCHANGE] = op_undefined;
     table[OP_EOFCREATE] = op_undefined;
-    table[OP_RETURNCONTRACT] = op_undefined;
+    table[OP_TXCREATE] = op_undefined;
+    table[OP_RETURNCODE] = op_undefined;
 
     return table;
 }();
@@ -347,3 +351,5 @@ EVMC_EXPORT const OpTable& get_op_table(evmc_revision rev) noexcept
     return op_tables[rev];
 }
 }  // namespace evmone::advanced
+
+// NOLINTEND(misc-use-internal-linkage)

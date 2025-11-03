@@ -14,12 +14,6 @@ using namespace evmone::crypto;
 
 namespace
 {
-// TODO(intx): Add ""_u384.
-consteval auto operator""_u384(const char* s)
-{
-    return intx::from_string<intx::uint384>(s);
-}
-
 constexpr auto G1_GENERATOR_X =
     0x17F1D3A73197D7942695638C4FA9AC0FC3688C4F9774B905A14E3A3F171BAC586C55E83FF97A1AEFFB3AF00ADB22C6BB_u384;
 constexpr std::byte ZERO32[32]{};
@@ -60,7 +54,7 @@ TEST(kzg, verify_proof_constant)
 
     // Commitment for f(x) = 1 is [1]₁, i.e. the G1 generator point.
     std::byte c[48]{};
-    intx::be::store(reinterpret_cast<uint8_t(&)[sizeof(c)]>(c), G1_GENERATOR_X);
+    intx::be::unsafe::store(reinterpret_cast<uint8_t*>(c), G1_GENERATOR_X);
     c[0] |= std::byte{0x80};  // flag of the point compressed form.
 
     const auto hash = versioned_hash(c);

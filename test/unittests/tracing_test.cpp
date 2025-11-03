@@ -125,6 +125,23 @@ TEST_F(tracing, three_tracers)
     EXPECT_EQ(trace(dup1(0)), "A0:PUSH1 B0:PUSH1 C0:PUSH1 A2:DUP1 B2:DUP1 C2:DUP1 ");
 }
 
+TEST_F(tracing, tracer_removed)
+{
+    vm.add_tracer(std::make_unique<OpcodeTracer>(*this, ""));
+    vm.remove_tracers();
+
+    EXPECT_EQ(vm.get_tracer(), nullptr);
+}
+
+TEST_F(tracing, tracers_removed)
+{
+    vm.add_tracer(std::make_unique<OpcodeTracer>(*this, "A"));
+    vm.add_tracer(std::make_unique<OpcodeTracer>(*this, "B"));
+    vm.remove_tracers();
+
+    EXPECT_EQ(vm.get_tracer(), nullptr);
+}
+
 TEST_F(tracing, histogram)
 {
     vm.add_tracer(evmone::create_histogram_tracer(trace_stream));
@@ -288,7 +305,7 @@ TEST_F(tracing, trace_eof)
     vm.add_tracer(evmone::create_instruction_tracer(trace_stream));
 
     trace_stream << '\n';
-    EXPECT_EQ(trace(bytecode{eof_bytecode(add(2, 3) + OP_STOP, 2)}, 0, 0, EVMC_PRAGUE), R"(
+    EXPECT_EQ(trace(bytecode{eof_bytecode(add(2, 3) + OP_STOP, 2)}, 0, 0, EVMC_EXPERIMENTAL), R"(
 {"pc":0,"op":96,"gas":"0xf4240","gasCost":"0x3","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":2,"op":96,"gas":"0xf423d","gasCost":"0x3","memSize":0,"stack":["0x3"],"depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":4,"op":1,"gas":"0xf423a","gasCost":"0x3","memSize":0,"stack":["0x3","0x2"],"depth":1,"refund":0,"opName":"ADD"}

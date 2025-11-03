@@ -29,6 +29,7 @@ target_sources(
     evm_eip3860_initcode_test.cpp
     evm_eip4844_blobhash_test.cpp
     evm_eip7516_blobbasefee_test.cpp
+    evm_eip7939_clz_test.cpp
     evm_eof_test.cpp
     evm_eof_calls_test.cpp
     evm_eof_function_test.cpp
@@ -40,6 +41,7 @@ target_sources(
     evm_benchmark_test.cpp
     evmmax_bn254_add_test.cpp
     evmmax_bn254_mul_test.cpp
+    evmmax_bn254_pairing_test.cpp
     evmmax_test.cpp
     evmmax_secp256k1_test.cpp
     evmone_test.cpp
@@ -47,13 +49,18 @@ target_sources(
     exportable_fixture.hpp
     exportable_fixture.cpp
     instructions_test.cpp
+    jumpdest_analysis_test.cpp
+    lru_cache_test.cpp
     precompiles_blake2b_test.cpp
     precompiles_bls_test.cpp
+    precompiles_bn254_test.cpp
     precompiles_kzg_test.cpp
     precompiles_ripemd160_test.cpp
     precompiles_sha256_test.cpp
+    precompiles_expmod_test.cpp
     state_block_test.cpp
     state_bloom_filter_test.cpp
+    state_deposit_requests_test.cpp
     state_difficulty_test.cpp
     state_mpt_hash_test.cpp
     state_mpt_test.cpp
@@ -67,10 +74,13 @@ target_sources(
     state_transition_call_test.cpp
     state_transition_create_test.cpp
     state_transition_eip663_test.cpp
+    state_transition_eip7702_test.cpp
     state_transition_eof_calls_test.cpp
     state_transition_eof_create_test.cpp
+    state_transition_txcreate_test.cpp
     state_transition_extcode_test.cpp
     state_transition_selfdestruct_test.cpp
+    state_transition_snippets_test.cpp
     state_transition_touch_test.cpp
     state_transition_trace_test.cpp
     state_transition_transient_storage_test.cpp
@@ -83,7 +93,7 @@ target_sources(
     statetest_withdrawals_test.cpp
     tracing_test.cpp
 )
-target_link_libraries(evmone-unittests PRIVATE evmone evmone::evmmax evmone::state evmone::statetestutils testutils evmc::instructions GTest::gtest GTest::gtest_main)
+target_link_libraries(evmone-unittests PRIVATE evmone evmone::evmmax evmone::experimental evmone::state evmone::statetestutils testutils evmc::instructions GTest::gtest GTest::gtest_main)
 target_include_directories(evmone-unittests PRIVATE ${evmone_private_include_dir})
 target_compile_options(evmone-unittests PRIVATE
     # Disable false positive C4789

@@ -93,6 +93,14 @@ inline bytes big_endian(T value)
     return {static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value)};
 }
 
+template <typename T>
+    requires(std::is_same_v<T, uint32_t>)
+inline bytes big_endian(T value)
+{
+    return {static_cast<uint8_t>(value >> 24), static_cast<uint8_t>(value >> 16),
+        static_cast<uint8_t>(value >> 8), static_cast<uint8_t>(value)};
+}
+
 struct eof_bytecode
 {
 private:
@@ -135,8 +143,8 @@ private:
             out += "03"_hex + big_endian(container_count);
             for (const auto& container : m_containers)
             {
-                assert(container.size() <= std::numeric_limits<uint16_t>::max());
-                const auto container_size = static_cast<uint16_t>(container.size());
+                assert(container.size() <= std::numeric_limits<uint32_t>::max());
+                const auto container_size = static_cast<uint32_t>(container.size());
                 out += big_endian(container_size);
             }
         }
@@ -144,24 +152,24 @@ private:
         // data header
         const auto data_size =
             (m_data_size == 0 ? static_cast<uint16_t>(m_data.size()) : m_data_size);
-        out += "04" + big_endian(data_size);
+        out += "ff" + big_endian(data_size);
         out += "00";  // terminator
 
         // types section
         for (const auto& type : m_types)
-            out += bytes{type.inputs, type.outputs} + big_endian(type.max_stack_height);
+            out += bytes{type.inputs, type.outputs} + big_endian(type.max_stack_increase);
         return out;
     }
 
 public:
-    explicit eof_bytecode(bytecode code, uint16_t max_stack_height = 0)
-      : m_codes{std::move(code)}, m_types{{0, 0x80, max_stack_height}}
+    explicit eof_bytecode(bytecode code, uint16_t max_stack_increase = 0)
+      : m_codes{std::move(code)}, m_types{{0, 0x80, max_stack_increase}}
     {}
 
-    auto& code(bytecode c, uint8_t inputs, uint8_t outputs, uint16_t max_stack_height)
+    auto& code(bytecode c, uint8_t inputs, uint8_t outputs, uint16_t max_stack_increase = 0)
     {
         m_codes.emplace_back(std::move(c));
-        m_types.emplace_back(inputs, outputs, max_stack_height);
+        m_types.emplace_back(inputs, outputs, max_stack_increase);
         return *this;
     }
 
@@ -288,6 +296,11 @@ inline bytecode eq(bytecode a, bytecode b)
     return b + a + OP_EQ;
 }
 
+inline bytecode clz(bytecode a)
+{
+    return a + OP_CLZ;
+}
+
 inline bytecode byte(bytecode a, bytecode n)
 {
     return a + n + OP_BYTE;
@@ -382,10 +395,10 @@ inline bytecode ret(bytecode c)
     return c + ret_top();
 }
 
-inline bytecode returncontract(
+inline bytecode returncode(
     uint8_t container_index, bytecode aux_data_offset, bytecode aux_data_size)
 {
-    return aux_data_size + aux_data_offset + OP_RETURNCONTRACT + bytecode{bytes{container_index}};
+    return aux_data_size + aux_data_offset + OP_RETURNCODE + bytecode{bytes{container_index}};
 }
 
 inline bytecode revert(bytecode index, bytecode size)
@@ -622,7 +635,7 @@ public:
     }
 
     template <Opcode k = kind>
-        requires(k == OP_CREATE2 || k == OP_EOFCREATE)
+        requires(k == OP_CREATE2 || k == OP_EOFCREATE || k == OP_TXCREATE)
     create_instruction& salt(bytecode salt)
     {
         m_salt = std::move(salt);
@@ -637,18 +650,25 @@ public:
         return *this;
     }
 
+    template <Opcode k = kind>
+        requires(k == OP_TXCREATE)
+    create_instruction& initcode(bytecode hash)
+    {
+        m_initcode_hash = std::move(hash);
+        return *this;
+    }
+
     operator bytecode() const
     {
         bytecode code;
-        if constexpr (kind == OP_CREATE2)
-            code += m_salt;
+        if constexpr (kind == OP_CREATE)
+            code += m_input_size + m_input + m_value;
+        else if constexpr (kind == OP_CREATE2)
+            code += m_salt + m_input_size + m_input + m_value;
         else if constexpr (kind == OP_EOFCREATE)
-            code += m_input_size + m_input + m_salt;
-
-        if constexpr (kind == OP_CREATE || kind == OP_CREATE2)
-            code += m_input_size + m_input;
-
-        code += m_value;
+            code += m_value + m_input_size + m_input + m_salt;
+        else if constexpr (kind == OP_TXCREATE)
+            code += m_value + m_input_size + m_input + m_salt + m_initcode_hash;
 
         code += bytecode{kind};
         if constexpr (kind == OP_EOFCREATE)
@@ -670,6 +690,11 @@ inline auto create2()
 inline auto eofcreate()
 {
     return create_instruction<OP_EOFCREATE>{};
+}
+
+inline auto txcreate()
+{
+    return create_instruction<OP_TXCREATE>{};
 }
 
 inline std::string hex(Opcode opcode) noexcept

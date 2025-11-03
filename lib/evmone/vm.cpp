@@ -12,10 +12,6 @@
 #include <cassert>
 #include <iostream>
 
-#ifdef QTUM_BUILD
-#define PROJECT_VERSION "0.12.0"
-#endif
-
 namespace evmone
 {
 namespace
@@ -64,6 +60,10 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     {
         vm.add_tracer(create_histogram_tracer(std::clog));
         return EVMC_SET_OPTION_SUCCESS;
+    }
+    else if (name == "opcode.count")
+    {
+        vm.add_tracer(create_instruction_counter(value));
     }
     else if (name == "validate_eof")
     {

@@ -117,7 +117,9 @@ TEST(statetest_loader, load_minimal_test)
                 "value": null,
                 "nonce" : "0"
             },
-            "post": {},
+            "post": {
+                "Cancun": []
+            },
             "env": {
                 "currentNumber": "0",
                 "currentTimestamp": "0",
@@ -129,12 +131,12 @@ TEST(statetest_loader, load_minimal_test)
     const auto st = std::move(load_state_tests(s).at(0));
     // TODO: should add some comparison operator to State, BlockInfo, AccessList
     EXPECT_EQ(st.pre_state.size(), 0);
-    EXPECT_EQ(st.block.number, 0);
-    EXPECT_EQ(st.block.timestamp, 0);
-    EXPECT_EQ(st.block.gas_limit, 0);
-    EXPECT_EQ(st.block.coinbase, address{});
-    EXPECT_EQ(st.block.prev_randao, bytes32{});
-    EXPECT_EQ(st.block.base_fee, 0);
+    EXPECT_EQ(st.cases[0].block.number, 0);
+    EXPECT_EQ(st.cases[0].block.timestamp, 0);
+    EXPECT_EQ(st.cases[0].block.gas_limit, 0);
+    EXPECT_EQ(st.cases[0].block.coinbase, address{});
+    EXPECT_EQ(st.cases[0].block.prev_randao, bytes32{});
+    EXPECT_EQ(st.cases[0].block.base_fee, 0);
     EXPECT_EQ(st.multi_tx.type, test::TestMultiTransaction::Type::legacy);
     EXPECT_EQ(st.multi_tx.data, bytes{});
     EXPECT_EQ(st.multi_tx.gas_limit, 0);
@@ -155,14 +157,15 @@ TEST(statetest_loader, load_minimal_test)
     EXPECT_EQ(st.multi_tx.gas_limits.size(), 1);
     EXPECT_EQ(st.multi_tx.gas_limits[0], 0);
     EXPECT_EQ(st.multi_tx.values.size(), 0);
-    EXPECT_EQ(st.cases.size(), 0);
+    EXPECT_EQ(st.cases.size(), 1);
+    EXPECT_EQ(st.cases[0].expectations.size(), 0);
     EXPECT_EQ(st.input_labels.size(), 0);
 }
 
 TEST(statetest_loader, validate_state_invalid_eof)
 {
     TestState state{{0xadd4_address, {.code = "EF0001010000020001000103000100FEDA"_hex}}};
-    EXPECT_THAT([&] { validate_state(state, EVMC_PRAGUE); },
+    EXPECT_THAT([&] { validate_state(state, EVMC_EXPERIMENTAL); },
         ThrowsMessage<std::invalid_argument>(
             "EOF container at 0x000000000000000000000000000000000000add4 is invalid: "
             "zero_section_size"));
@@ -173,15 +176,57 @@ TEST(statetest_loader, validate_state_unexpected_eof)
     TestState state{{0xadd4_address, {.code = "EF00"_hex}}};
     EXPECT_THAT([&] { validate_state(state, EVMC_CANCUN); },
         ThrowsMessage<std::invalid_argument>(
-            "unexpected code with EOF prefix at 0x000000000000000000000000000000000000add4"));
+            "unexpected code starting with 0xEF at 0x000000000000000000000000000000000000add4"));
 }
 
 TEST(statetest_loader, validate_state_zero_storage_slot)
 {
     TestState state{{0xadd4_address, {.storage = {{0x01_bytes32, 0x00_bytes32}}}}};
-    EXPECT_THAT([&] { validate_state(state, EVMC_PRAGUE); },
+    EXPECT_THAT([&] { validate_state(state, EVMC_LONDON); },
         ThrowsMessage<std::invalid_argument>(
             "account 0x000000000000000000000000000000000000add4 contains invalid zero-value "
             "storage entry "
             "0x0000000000000000000000000000000000000000000000000000000000000001"));
+}
+
+TEST(statetest_loader, validate_state_unexpected_ef_prefix)
+{
+    TestState state{{0xadd4_address, {.code = "EF00"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_LONDON); },
+        ThrowsMessage<std::invalid_argument>(
+            "unexpected code starting with 0xEF at 0x000000000000000000000000000000000000add4"));
+}
+
+TEST(statetest_loader, validate_state_invalid_delegation_size)
+{
+    TestState state{{0xadd4_address, {.code = "EF010000"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_PRAGUE); },
+        ThrowsMessage<std::invalid_argument>(
+            "EIP-7702 delegation designator at 0x000000000000000000000000000000000000add4 has "
+            "invalid size"));
+}
+
+TEST(statetest_loader, validate_state_unexpected_delegation)
+{
+    TestState state{
+        {0xadd4_address, {.code = "EF01000000000000000000000000000000000000000001"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_CANCUN); },
+        ThrowsMessage<std::invalid_argument>(
+            "unexpected code starting with 0xEF at 0x000000000000000000000000000000000000add4"));
+}
+
+TEST(statetest_loader, validate_empty_account_with_storage)
+{
+    TestState state{{0xadd4_address, {.storage = {{0x01_bytes32, 0x01_bytes32}}}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_CANCUN); },
+        ThrowsMessage<std::invalid_argument>(
+            "empty account with non-empty storage at 0x000000000000000000000000000000000000add4"));
+}
+
+TEST(statetest_loader, validate_code_at_precompile_address)
+{
+    TestState state{{0x0a_address, {.code = "00"_hex}}};
+    EXPECT_THAT([&] { validate_state(state, EVMC_CANCUN); },
+        ThrowsMessage<std::invalid_argument>(
+            "unexpected code at precompile address 0x000000000000000000000000000000000000000a"));
 }

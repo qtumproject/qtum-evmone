@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
-#include "precompiles_internal.hpp"
+#include <cstdint>
+#include <span>
 
 namespace evmone::state
 {
-ExecutionResult expmod_stub(
-    const uint8_t* input, size_t input_size, uint8_t* output, size_t max_output_size) noexcept;
-ExecutionResult ecpairing_stub(
-    const uint8_t* input, size_t input_size, uint8_t* output, size_t max_output_size) noexcept;
+/// Executes the expmod precompile for trivial and pre-defined inputs.
+void expmod_stub(std::span<const uint8_t> base, std::span<const uint8_t> exp,
+    std::span<const uint8_t> mod, uint8_t* output) noexcept;
 }  // namespace evmone::state

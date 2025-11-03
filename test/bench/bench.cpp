@@ -58,7 +58,7 @@ std::vector<BenchmarkCase::Input> load_inputs(const StateTransitionTest& state_t
 BenchmarkCase load_benchmark(const fs::path& path, const std::string& name_prefix)
 {
     std::ifstream f{path};
-    auto state_test = std::move(evmone::test::load_state_tests(f).at(0));
+    auto state_test = std::move(load_state_tests(f).at(0));
 
     const auto name = name_prefix + path.stem().string();
     const auto code = state_test.pre_state.get(state_test.multi_tx.to.value()).code;
@@ -82,8 +82,8 @@ std::vector<BenchmarkCase> load_benchmarks_from_dir(  // NOLINT(misc-no-recursio
             code_files.emplace_back(e);
     }
 
-    std::sort(std::begin(subdirs), std::end(subdirs));
-    std::sort(std::begin(code_files), std::end(code_files));
+    std::ranges::sort(subdirs);
+    std::ranges::sort(code_files);
 
     std::vector<BenchmarkCase> benchmark_cases;
 
@@ -162,8 +162,8 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
             for (auto& [vm_name, vm] : registered_vms)
             {
                 const auto name = std::string{vm_name} + "/total/" + case_name;
-                RegisterBenchmark(name, [&vm_ = vm, &b, &input](State& state) {
-                    bench_evmc_execute(state, vm_, b.code, input.input, input.expected_output);
+                RegisterBenchmark(name, [&vm, &b, &input](State& state) {
+                    bench_evmc_execute(state, vm, b.code, input.input, input.expected_output);
                 })->Unit(kMicrosecond);
             }
         }
@@ -260,6 +260,8 @@ std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+    MaybeReenterWithoutASLR(argc, argv);
+
     using namespace evmone::test;
     try
     {

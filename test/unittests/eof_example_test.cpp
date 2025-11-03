@@ -17,7 +17,7 @@ TEST_F(state_transition, eof_examples_minimal)
     //
     // A minimal valid EOF container doing nothing.
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const auto eof_code = bytecode(
         //                                                  Code section: STOP
@@ -25,7 +25,7 @@ TEST_F(state_transition, eof_examples_minimal)
         //               |                                  |
         //    version    |                    Header terminator
         //    |          |___________         |             |
-        "EF00 01 01 0004 02 0001 0001 04 0000 00 00 80 0000 00"
+        "EF00 01 01 0004 02 0001 0001 FF 0000 00 00 80 0000 00"
         //       |‾‾‾‾‾‾              |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
         //       |                    Header: data section 0 bytes long
         //       |                               |
@@ -50,7 +50,7 @@ TEST_F(state_transition, eof_examples_static_relative_jump_loop)
     //
     // EOF container looping infinitely using the static relative jump instruction RJUMP.
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const auto eof_code = bytecode(
         //                                                  Code section: RJUMP back to start (-3)
@@ -60,7 +60,7 @@ TEST_F(state_transition, eof_examples_static_relative_jump_loop)
         //               |                                  |
         //    version    |                    Header terminator
         //    |          |___________         |             |
-        "EF00 01 01 0004 02 0001 0003 04 0000 00 00 80 0000 E0FFFD"
+        "EF00 01 01 0004 02 0001 0003 FF 0000 00 00 80 0000 E0FFFD"
         //       |‾‾‾‾‾‾              |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
         //       |                    Header: data section 0 bytes long
         //       |                               |
@@ -87,7 +87,7 @@ TEST_F(state_transition, eof_examples_callf)
     // EOF container with two code sections, one calling the other passing a single argument on the
     // stack and retrieving the same single value back from the stack on return.
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const auto eof_code = bytecode(
         //                                                   First code section: PUSH1(0x2A),
@@ -98,16 +98,16 @@ TEST_F(state_transition, eof_examples_callf)
         //               |                                                  |              |
         //    version    |                         Header terminator        |              |
         //    |          |________________         |                        |_____________ |
-        "EF00 01 01 0008 02 0002 0006 0001 04 0000 00 00 80 0001 01 01 0001 602A E30001 00 E4"
+        "EF00 01 01 0008 02 0002 0006 0001 FF 0000 00 00 80 0001 01 01 0000 602A E30001 00 E4"
         //       |‾‾‾‾‾‾                   |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
         //       |                         Header: data section 0 bytes long
         //       |                                    |
         //       Header: types section 8 bytes long   |
         //                                            |
         //                                            Types section: first code section 0 inputs,
-        //                                            non-returning, max stack height 1;
+        //                                            non-returning, max stack increase 1;
         //                                            second code section 1 input,
-        //                                            1 output, max stack height 1
+        //                                            1 output, max stack increase 0
     );
 
     // Tests the code is valid EOF.
@@ -119,46 +119,6 @@ TEST_F(state_transition, eof_examples_callf)
     expect.post[*tx.to].exists = true;
 }
 
-TEST_F(state_transition, eof_examples_creation_tx)
-{
-    // # Example 4
-    //
-    // A creation transaction used to create a new EOF contract.
-
-    rev = EVMC_PRAGUE;
-
-    const auto initcontainer = bytecode(
-        //////////////////
-        // Initcontainer
-        //                        Code section: PUSH0 [aux data size], PUSH0 [aux data offset] and
-        //                                      RETURNCONTRACT first subcontainer
-        //                                                               |
-        //               Header: 1 code section 4 bytes long             |
-        //               |                                               |
-        //    version    |                                 Header terminator
-        //    |          |___________                      |             |________
-        "EF00 01 01 0004 02 0001 0004 03 0001 0014 04 0000 00 00 80 0002 5F5F EE00"
-        //       |‾‾‾‾‾‾              |‾‾‾‾‾‾‾‾‾‾‾ |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
-        //       |                    |            Header: data section 0 bytes long
-        //       |                    |                       |
-        //       Header: types section 4 bytes long           Types section: first code section
-        //                            |                       0 inputs, non-returning,
-        //                            |                       max stack height 2
-        //       Header: 1 subcontainer 20 bytes long
-        //
-        //////////////////
-        // Deployed container (contract doing nothing, see Example 1)
-        "EF00 01 01 0004 02 0001 0001 04 0000 00 00 80 0000 00");
-
-    // Put the initcontainer in the `data` field of the transaction, appending some calldata.
-    tx.data = initcontainer + "ABCDEF";
-    // Empty `to` field.
-    tx.to = std::nullopt;
-
-    // Address of the newly created contract is calculated using the deployer's address and nonce.
-    expect.post[0x3442a1dec1e72f337007125aa67221498cdd759d_address].exists = true;
-}
-
 TEST_F(state_transition, eof_examples_eofcreate)
 {
     // # Example 5
@@ -166,7 +126,7 @@ TEST_F(state_transition, eof_examples_eofcreate)
     // A factory contract with an EOFCREATE instruction is being called in order
     // to deploy its subcontainer as a new EOF contract.
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     const auto factory = bytecode(
         //////////////////
@@ -174,41 +134,41 @@ TEST_F(state_transition, eof_examples_eofcreate)
         //                    Code section: PUSH0 [input size], PUSH0 [input offset], PUSH1 [salt],
         //                                  PUSH0 [endowment value],
         //                                  EOFCREATE from first subcontainer and STOP
-        //                                                               |
-        //               Header: 1 code section 8 bytes long             |
-        //               |                                               |
-        //    version    |                                 Header terminator
-        //    |          |___________                      |             |____________________
-        "EF00 01 01 0004 02 0001 0008 03 0001 0030 04 0000 00 00 80 0004 5F 5F 60FF 5F EC00 00"
-        //       |‾‾‾‾‾‾              |‾‾‾‾‾‾‾‾‾‾‾ |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
-        //       |                    |            Header: data section 0 bytes long
-        //       |                    |                       |
-        //       Header: types section 4 bytes long           Types section: first code section
-        //                            |                       0 inputs, non-returning,
-        //                            |                       max stack height 4
-        //       Header: 1 subcontainer 48 bytes long
+        //                                                                   |
+        //               Header: 1 code section 8 bytes long                 |
+        //               |                                                   |
+        //    version    |                                     Header terminator
+        //    |          |___________                          |             |____________________
+        "EF00 01 01 0004 02 0001 0008 03 0001 00000032 FF 0000 00 00 80 0004 5F 5F 60FF 5F EC00 00"
+        //       |‾‾‾‾‾‾              |‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
+        //       |                    |                Header: data section 0 bytes long
+        //       |                    |                           |
+        //       Header: types section 4 bytes long               Types section: first code section
+        //                            |                           0 inputs, non-returning,
+        //                            |                           max stack height 4
+        //       Header: 1 subcontainer 50 bytes long
         //
         //////////////////
         // Initcontainer
         //                    Code section: PUSH0 [aux data size], PUSH0 [aux data offset],
-        //                                  RETURNCONTRACT first subcontainer
-        //                                                               |
-        //               Header: 1 code section 8 bytes long             |
-        //               |                                               |
-        //    version    |                                 Header terminator
-        //    |          |___________                      |             |_________
-        "EF00 01 01 0004 02 0001 0004 03 0001 0014 04 0000 00 00 80 0002 5F 5F EE00"
-        //       |‾‾‾‾‾‾              |‾‾‾‾‾‾‾‾‾‾‾ |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
-        //       |                    |            Header: data section 0 bytes long
-        //       |                    |                       |
-        //       Header: types section 4 bytes long           Types section: first code section
-        //                            |                       0 inputs, non-returning,
-        //                            |                       max stack height 2
+        //                                  RETURNCODE first subcontainer
+        //                                                                   |
+        //               Header: 1 code section 4 bytes long                 |
+        //               |                                                   |
+        //    version    |                                     Header terminator
+        //    |          |___________                          |             |_________
+        "EF00 01 01 0004 02 0001 0004 03 0001 00000014 FF 0000 00 00 80 0002 5F 5F EE00"
+        //       |‾‾‾‾‾‾              |‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾ |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
+        //       |                    |                Header: data section 0 bytes long
+        //       |                    |                           |
+        //       Header: types section 4 bytes long               Types section: first code section
+        //                            |                           0 inputs, non-returning,
+        //                            |                           max stack height 2
         //       Header: 1 subcontainer 20 bytes long
         //
         //////////////////
         // Deployed container (contract doing nothing, see Example 1)
-        "EF00 01 01 0004 02 0001 0001 04 0000 00 00 80 0000 00");
+        "EF00 01 01 0004 02 0001 0001 FF 0000 00 00 80 0000 00");
 
     // Tests the code is valid EOF and when called with initcodes creates a new contract.
     tx.to = To;
@@ -216,9 +176,8 @@ TEST_F(state_transition, eof_examples_eofcreate)
                            .code = factory,
                        });
 
-    // Address of the newly created contract is calculated using the salt, initcontainer hash and
-    // deployer address.
-    expect.post[0x5ea44d9b32a04ae2c15fe4fa8ebf9a8a5a1e7e89_address].exists = true;
+    // Address of the newly created contract is calculated using the salt and deployer address.
+    expect.post[0xa36d08aa64ae9bcf54b8d880838a077090eca26e_address].exists = true;
     expect.post[*tx.to].exists = true;
 }
 
@@ -228,7 +187,7 @@ TEST_F(state_transition, eof_examples_data)
     //
     // A basic EOF contract with a data section being used to load a byte of data onto the stack.
 
-    rev = EVMC_PRAGUE;
+    rev = EVMC_EXPERIMENTAL;
 
     // clang-format off
     const auto eof_code = bytecode(
@@ -238,7 +197,7 @@ TEST_F(state_transition, eof_examples_data)
         //               |                                  |
         //    version    |                    Header terminator       Data section
         //    |          |___________         |             |________ |_________________________________________________________________
-        "EF00 01 01 0004 02 0001 0004 04 0021 00 00 80 0001 D10000 00 454F462068617320736F6D65206772656174206578616D706C6573206865726521"
+        "EF00 01 01 0004 02 0001 0004 FF 0021 00 00 80 0001 D10000 00 454F462068617320736F6D65206772656174206578616D706C6573206865726521"
         //       |‾‾‾‾‾‾              |‾‾‾‾‾‾    |‾‾‾‾‾‾‾‾‾
         //       |                    Header: data section 33 bytes long
         //       |                               |

@@ -39,15 +39,25 @@ evmc_revision to_rev(std::string_view s)
         return EVMC_PRAGUE;
     if (s == "Osaka")
         return EVMC_OSAKA;
+    if (s == "EOFv1")
+        return EVMC_EXPERIMENTAL;
+    if (s == "Experimental")
+        return EVMC_EXPERIMENTAL;
     throw std::invalid_argument{"unknown revision: " + std::string{s}};
 }
 
 RevisionSchedule to_rev_schedule(std::string_view s)
 {
+    if (s == "BerlinToLondonAt5")
+        return {EVMC_BERLIN, EVMC_LONDON, 5};
+    if (s == "ParisToShanghaiAtTime15k")
+        return {EVMC_PARIS, EVMC_SHANGHAI, 15'000};
     if (s == "ShanghaiToCancunAtTime15k")
         return {EVMC_SHANGHAI, EVMC_CANCUN, 15'000};
     if (s == "CancunToPragueAtTime15k")
         return {EVMC_CANCUN, EVMC_PRAGUE, 15'000};
+    if (s == "PragueToOsakaAtTime15k")
+        return {EVMC_PRAGUE, EVMC_OSAKA, 15'000};
 
     const auto single_rev = to_rev(s);
     return {single_rev, single_rev, 0};

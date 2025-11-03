@@ -5,6 +5,7 @@
 
 #include <evmc/evmc.hpp>
 #include <intx/intx.hpp>
+#include <exception>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,48 +29,25 @@ using intx::uint256;
 /// Provides memory for EVM stack.
 class StackSpace
 {
-    static uint256* allocate() noexcept
+    struct Storage
     {
-        static constexpr auto alignment = sizeof(uint256);
-        static constexpr auto size = limit * sizeof(uint256);
-#if defined _MSC_VER || defined __MINGW32__
-        // MSVC doesn't support aligned_alloc() but _aligned_malloc() can be used instead.
-        const auto p = _aligned_malloc(size, alignment);
-#else
-        const auto p = std::aligned_alloc(alignment, size);
-#endif
-        return static_cast<uint256*>(p);
-    }
+        /// The maximum number of EVM stack items.
+        static constexpr auto limit = 1024;
 
-    struct Deleter
-    {
-        // TODO(C++23): static
-        void operator()(void* p) noexcept
-        {
-#if defined _MSC_VER || defined __MINGW32__
-            // For MSVC the _aligned_malloc() must be paired with _aligned_free().
-            _aligned_free(p);
-#else
-            std::free(p);
-#endif
-        }
+        /// Stack space items are aligned to 256 bits for better packing in cache lines.
+        static constexpr auto alignment = sizeof(uint256);
+
+        alignas(alignment) uint256 items[limit];
     };
 
     /// The storage allocated for maximum possible number of items.
-    /// Items are aligned to 256 bits for better packing in cache lines.
-    std::unique_ptr<uint256, Deleter> m_stack_space;
+    std::unique_ptr<Storage> m_stack_space = std::make_unique<Storage>();
 
 public:
-    /// The maximum number of EVM stack items.
-    static constexpr auto limit = 1024;
-
-    StackSpace() noexcept : m_stack_space{allocate()} {}
+    static constexpr auto limit = Storage::limit;
 
     /// Returns the pointer to the "bottom", i.e. below the stack space.
-    [[nodiscard, clang::no_sanitize("bounds")]] uint256* bottom() noexcept
-    {
-        return m_stack_space.get() - 1;
-    }
+    [[nodiscard]] uint256* bottom() noexcept { return &m_stack_space->items[0]; }
 };
 
 
@@ -145,6 +123,15 @@ public:
     void clear() noexcept { m_size = 0; }
 };
 
+/// Initcode read from Initcode Transaction (EIP-7873).
+struct TransactionInitcode
+{
+    /// Initcode bytes.
+    bytes_view code;
+    /// Result of initcode validation, if it was validated.
+    /// std::nullopt if initcode was not validated yet.
+    std::optional<bool> is_valid;
+};
 
 /// Generic execution state for generic instructions implementations.
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
@@ -167,11 +154,12 @@ public:
     size_t output_offset = 0;
     size_t output_size = 0;
 
-    /// Container to be deployed returned from RETURNCONTRACT, used only inside EOFCREATE execution.
+    /// Container to be deployed returned from RETURNCODE, used only inside EOFCREATE execution.
     std::optional<bytes> deploy_container;
 
 private:
     evmc_tx_context m_tx = {};
+    std::optional<std::unordered_map<evmc::bytes32, TransactionInitcode>> m_initcodes;
 
 public:
     /// Pointer to code analysis.
@@ -214,6 +202,7 @@ public:
         output_size = 0;
         deploy_container = {};
         m_tx = {};
+        m_initcodes.reset();
         call_stack = {};
     }
 
@@ -224,6 +213,27 @@ public:
         if (INTX_UNLIKELY(m_tx.block_timestamp == 0))
             m_tx = host.get_tx_context();
         return m_tx;
+    }
+
+    /// Get initcode by its hash from transaction initcodes.
+    ///
+    /// Returns nullptr if no such initcode was found.
+    [[nodiscard]] TransactionInitcode* get_tx_initcode_by_hash(const evmc_bytes32& hash)
+    {
+        if (!m_initcodes.has_value())
+        {
+            m_initcodes.emplace();
+            const auto& tx_context = get_tx_context();
+            for (size_t i = 0; i < tx_context.initcodes_count; ++i)
+            {
+                const auto& initcode = tx_context.initcodes[i];
+                m_initcodes->insert({initcode.hash,
+                    {.code = {initcode.code, initcode.code_size}, .is_valid = std::nullopt}});
+            }
+        }
+
+        const auto it = m_initcodes->find(hash);
+        return it != m_initcodes->end() ? &it->second : nullptr;
     }
 };
 }  // namespace evmone

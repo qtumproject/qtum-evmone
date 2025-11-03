@@ -207,6 +207,11 @@ const TestCase
                     "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"_hex},
                 {"0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000"_hex,
                     "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002"_hex},
+                {"0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000230644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000002"_hex,
+                    "00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002"_hex},
+                {"0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000230644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000003"_hex,
+                    "030644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd315ed738c0e0a7c92e7845f96b2ae9c0a68a6a449e3538fc7ff3ebf7a5a18a2c4"_hex},
+
 };
 }  // namespace
 
@@ -217,13 +222,12 @@ TEST(evmmax, bn254_mul_validate_inputs)
         ASSERT_EQ(t.input.size(), 96);
         ASSERT_EQ(t.expected_output.size(), 64);
 
-        const Point a{
-            be::unsafe::load<uint256>(t.input.data()), be::unsafe::load<uint256>(&t.input[32])};
-        const Point e{be::unsafe::load<uint256>(t.expected_output.data()),
-            be::unsafe::load<uint256>(&t.expected_output[32])};
+        const auto p = AffinePoint::from_bytes(std::span<const uint8_t, 64>{&t.input[0], 64});
+        const auto r =
+            AffinePoint::from_bytes(std::span<const uint8_t, 64>{&t.expected_output[0], 64});
 
-        EXPECT_TRUE(validate(a));
-        EXPECT_TRUE(validate(e));
+        EXPECT_TRUE(validate(p));
+        EXPECT_TRUE(validate(r));
     }
 }
 
@@ -231,14 +235,12 @@ TEST(evmmax, bn254_pt_mul)
 {
     for (const auto& t : test_cases)
     {
-        const Point p{
-            be::unsafe::load<uint256>(t.input.data()), be::unsafe::load<uint256>(&t.input[32])};
-        const auto d{be::unsafe::load<uint256>(&t.input[64])};
-        const Point e{be::unsafe::load<uint256>(t.expected_output.data()),
-            be::unsafe::load<uint256>(&t.expected_output[32])};
+        const auto p = AffinePoint::from_bytes(std::span<const uint8_t, 64>{&t.input[0], 64});
+        const auto c = be::unsafe::load<uint256>(&t.input[64]);
+        const auto e =
+            AffinePoint::from_bytes(std::span<const uint8_t, 64>{&t.expected_output[0], 64});
 
-        auto r = mul(p, d);
-
+        const auto r = mul(p, c);
         EXPECT_EQ(r, e);
     }
 }

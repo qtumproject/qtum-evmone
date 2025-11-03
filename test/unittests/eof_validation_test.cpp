@@ -39,7 +39,7 @@ TEST_F(eof_validation, validate_EOF_prefix)
 
     add_test_case("EF0001", EOFValidationError::section_headers_not_terminated);
 
-    add_test_case("EFFF 01 010004 0200010003 030004 00 00800000 600000 AABBCCDD",
+    add_test_case("EFFF 01 010004 0200010003 FF0004 00 00800000 600000 AABBCCDD",
         EOFValidationError::invalid_prefix, "valid_except_magic");
 }
 
@@ -48,11 +48,11 @@ TEST_F(eof_validation, validate_EOF_version)
     add_test_case("EF0002", EOFValidationError::eof_version_unknown);
     add_test_case("EF00FF", EOFValidationError::eof_version_unknown);
 
-    add_test_case("EF0000 010004 0200010003 020004 00 00800000 600000 AABBCCDD",
+    add_test_case("EF0000 010004 0200010003 FF0004 00 00800000 600000 AABBCCDD",
         EOFValidationError::eof_version_unknown, "valid_except_version_00");
-    add_test_case("EF0002 010004 0200010003 020004 00 00800000 600000 AABBCCDD",
+    add_test_case("EF0002 010004 0200010003 FF0004 00 00800000 600000 AABBCCDD",
         EOFValidationError::eof_version_unknown, "valid_except_version_02");
-    add_test_case("EF00FF 010004 0200010003 020004 00 00800000 600000 AABBCCDD",
+    add_test_case("EF00FF 010004 0200010003 FF0004 00 00800000 600000 AABBCCDD",
         EOFValidationError::eof_version_unknown, "valid_except_version_FF");
 }
 
@@ -70,57 +70,48 @@ TEST_F(eof_validation, minimal_valid_EOF1_multiple_code_sections)
 {
     add_test_case("EF0001 010008 02000200010001 00  00800000 00800000  FE FE",
         EOFValidationError::data_section_missing, "no_data_section");
-    add_test_case(eof_bytecode(jumpf(1)).code(OP_INVALID, 0, 0x80, 0).data("DA"),
+    add_test_case(eof_bytecode(jumpf(1)).code(OP_INVALID, 0, 0x80).data("DA"),
         EOFValidationError::success, "with_data_section");
 
     add_test_case(eof_bytecode(OP_PUSH0 + callf(1) + OP_STOP, 1)
-                      .code(OP_POP + callf(2) + OP_POP + OP_RETF, 1, 0, 1)
+                      .code(OP_POP + callf(2) + OP_POP + OP_RETF, 1, 0)
                       .code(dup1(OP_ADDRESS) + callf(3) + OP_POP + OP_POP + OP_RETF, 0, 1, 3)
-                      .code(bytecode{OP_DUP1} + OP_RETF, 2, 3, 3),
+                      .code(bytecode{OP_DUP1} + OP_RETF, 2, 3, 1),
         EOFValidationError::success, "non_void_input_output");
 }
 
 TEST_F(eof_validation, minimal_valid_EOF1_multiple_container_sections)
 {
-    add_test_case("EF0001 010004 0200010001 0300010001 0300010001 040000 00 00800000 00 00 00",
+    add_test_case("EF0001 010004 0200010001 0300010001 0300010001 FF0000 00 00800000 00 00 00",
         EOFValidationError::data_section_missing, "no_data_section");
 }
 
 TEST_F(eof_validation, EOF1_types_section_missing)
 {
+    add_test_case("EF0001 00", EOFValidationError::type_section_missing);
     add_test_case("EF0001 0200010001 00 FE", EOFValidationError::type_section_missing);
-    add_test_case("EF0001 0200010001 040001 00 FE DA", EOFValidationError::type_section_missing);
+    add_test_case("EF0001 0200010001 030001 00 FE DA", EOFValidationError::type_section_missing);
+    add_test_case("EF0001 0200010001 FF0001 00 FE DA", EOFValidationError::type_section_missing);
+    add_test_case("EF0001 02000200010001 00 FE FE", EOFValidationError::type_section_missing);
 }
 
 TEST_F(eof_validation, EOF1_types_section_0_size)
 {
-    add_test_case("EF0001 010000 0200010001 00 FE", EOFValidationError::zero_section_size);
+    add_test_case("EF0001 010000 0200010001 FF0000 00 FE", EOFValidationError::zero_section_size);
     add_test_case(
-        "EF0001 010000 0200010001 040001 00 FE DA", EOFValidationError::zero_section_size);
-}
-
-TEST_F(eof_validation, EOF1_type_section_missing)
-{
-    add_test_case("EF0001 0200010001 00 FE", EOFValidationError::type_section_missing);
-    add_test_case("EF0001 0200010001 030001 00 FE DA", EOFValidationError::type_section_missing);
-    add_test_case("EF0001 00", EOFValidationError::type_section_missing);
+        "EF0001 010000 0200010001 FF0001 00 FE DA", EOFValidationError::zero_section_size);
 }
 
 TEST_F(eof_validation, EOF1_code_section_missing)
 {
     add_test_case("EF0001 010004 00", EOFValidationError::code_section_missing);
-    add_test_case("EF0001 010004 040001 00 00800000 DA", EOFValidationError::code_section_missing);
+    add_test_case("EF0001 010004 FF0001 00 00800000 DA", EOFValidationError::code_section_missing);
 }
 
 TEST_F(eof_validation, EOF1_code_section_0_size)
 {
     add_test_case("EF0001 010004 020000 00", EOFValidationError::zero_section_size);
-    add_test_case("EF0001 010004 020000 040001 00 DA", EOFValidationError::zero_section_size);
-}
-
-TEST_F(eof_validation, EOF1_data_section_0_size)
-{
-    add_test_case(eof_bytecode(OP_INVALID), EOFValidationError::success);
+    add_test_case("EF0001 010004 020000 FF0001 00 DA", EOFValidationError::zero_section_size);
 }
 
 TEST_F(eof_validation, EOF1_data_section_before_code_section)
@@ -131,27 +122,27 @@ TEST_F(eof_validation, EOF1_data_section_before_code_section)
 
 TEST_F(eof_validation, EOF1_data_section_before_types_section)
 {
-    add_test_case("EF0001 040001 010004 0200010001 00 AA 00800000 FE",
+    add_test_case("EF0001 FF0001 010004 0200010001 00 AA 00800000 FE",
         EOFValidationError::type_section_missing);
 }
 
 TEST_F(eof_validation, EOF1_multiple_data_sections)
 {
-    add_test_case("EF0001 010004 0200010001 040001 040001 00 00800000 FE DA DA",
+    add_test_case("EF0001 010004 0200010001 FF0001 FF0001 00 00800000 FE DA DA",
         EOFValidationError::header_terminator_missing);
 }
 
 TEST_F(eof_validation, EOF1_unknown_section)
 {
     add_test_case("EF0001 050001 00 FE", EOFValidationError::type_section_missing);
-    add_test_case("EF0001 FF0001 00 FE", EOFValidationError::type_section_missing);
+    add_test_case("EF0001 040001 00 FE", EOFValidationError::type_section_missing);
     add_test_case("EF0001 010004 0200010001 050001 00 00800000 FE 00",
         EOFValidationError::data_section_missing);
-    add_test_case("EF0001 010004 0200010001 FF0001 00 00800000 FE 00",
+    add_test_case("EF0001 010004 0200010001 040001 00 00800000 FE 00",
         EOFValidationError::data_section_missing);
-    add_test_case("EF0001 010004 0200010001 040001 050001 00 00800000 FE AA 00",
+    add_test_case("EF0001 010004 0200010001 FF0001 050001 00 00800000 FE AA 00",
         EOFValidationError::header_terminator_missing);
-    add_test_case("EF0001 010004 0200010001 040001 FF0001 00 00800000 FE AA 00",
+    add_test_case("EF0001 010004 0200010001 FF0001 040001 00 00800000 FE AA 00",
         EOFValidationError::header_terminator_missing);
 }
 
@@ -159,15 +150,13 @@ TEST_F(eof_validation, EOF1_incomplete_section_size)
 {
     // TODO: section_headers_not_terminated should rather be incomplete_section_size
     //  in these examples.
-
-    add_test_case("EF0001 01", EOFValidationError::section_headers_not_terminated);
     add_test_case("EF0001 0100", EOFValidationError::incomplete_section_size);
     add_test_case("EF0001 010004 0200", EOFValidationError::incomplete_section_number);
     add_test_case("EF0001 010004 02000100", EOFValidationError::incomplete_section_size);
     add_test_case("EF0001 010004 0200010001", EOFValidationError::section_headers_not_terminated);
     add_test_case(
-        "EF0001 010004 0200010001 04", EOFValidationError::section_headers_not_terminated);
-    add_test_case("EF0001 010004 0200010001 0400", EOFValidationError::incomplete_section_size);
+        "EF0001 010004 0200010001 FF", EOFValidationError::section_headers_not_terminated);
+    add_test_case("EF0001 010004 0200010001 FF00", EOFValidationError::incomplete_section_size);
 }
 
 TEST_F(eof_validation, EOF1_header_not_terminated)
@@ -176,30 +165,21 @@ TEST_F(eof_validation, EOF1_header_not_terminated)
     add_test_case("EF0001 010004", EOFValidationError::section_headers_not_terminated);
     add_test_case("EF0001 010004 FE", EOFValidationError::code_section_missing);
     add_test_case("EF0001 010004 02", EOFValidationError::incomplete_section_number);
-    add_test_case("EF0001 010004 0200", EOFValidationError::incomplete_section_number);
     add_test_case("EF0001 010004 020001", EOFValidationError::section_headers_not_terminated);
     add_test_case(
-        "EF0001 010004 0200010001 040001", EOFValidationError::section_headers_not_terminated);
+        "EF0001 010004 0200010001 FF0001", EOFValidationError::section_headers_not_terminated);
     add_test_case(
-        "EF0001 010004 0200010001 040001 FE AA", EOFValidationError::header_terminator_missing);
+        "EF0001 010004 0200010001 FF0001 FE AA", EOFValidationError::header_terminator_missing);
 }
 
 TEST_F(eof_validation, EOF1_truncated_section)
 {
     add_test_case(
-        "EF0001 010004 0200010002 040000 00", EOFValidationError::invalid_section_bodies_size);
-    add_test_case("EF0001 010004 0200010002 040000 00 008000",
+        "EF0001 010004 0200010002 FF0000 00", EOFValidationError::invalid_section_bodies_size);
+    add_test_case("EF0001 010004 0200010002 FF0000 00 008000",
         EOFValidationError::invalid_section_bodies_size);
-    add_test_case("EF0001 010004 0200010002 040000 00 00800000 FE",
+    add_test_case("EF0001 010004 0200010002 FF0000 00 00800000 FE",
         EOFValidationError::invalid_section_bodies_size);
-
-    // Data section may be truncated in runtime subcontainer
-    add_test_case(
-        eof_bytecode(returncontract(0, 0, 2), 2).container(eof_bytecode(OP_INVALID).data("", 2)),
-        ContainerKind::initcode, EOFValidationError::success);
-    add_test_case(
-        eof_bytecode(returncontract(0, 0, 1), 2).container(eof_bytecode(OP_INVALID).data("aa", 2)),
-        ContainerKind::initcode, EOFValidationError::success);
 
     // Data section may not be truncated in toplevel container
     add_test_case(
@@ -210,7 +190,7 @@ TEST_F(eof_validation, EOF1_truncated_section)
 
 TEST_F(eof_validation, EOF1_code_section_offset)
 {
-    const auto eof = eof_bytecode(jumpf(1)).code(OP_INVALID, 0, 0x80, 0).data("00000000");
+    const auto eof = eof_bytecode(jumpf(1)).code(OP_INVALID, 0, 0x80).data("00000000");
     add_test_case(eof, EOFValidationError::success);
 
     const auto header = read_valid_eof1_header(bytecode(eof));
@@ -234,16 +214,10 @@ TEST_F(eof_validation, EOF1_trailing_bytes_in_subcontainer)
 
 TEST_F(eof_validation, EOF1_trailing_bytes_top_level)
 {
-    add_test_case("EF0001 010004 0200010001 040000 00 00800000 FE DEADBEEF",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 00800000 FE DEADBEEF",
         EOFValidationError::invalid_section_bodies_size);
-    add_test_case("EF0001 010004 0200010001 040002 00 00800000 FE AABB DEADBEEF",
+    add_test_case("EF0001 010004 0200010001 FF0002 00 00800000 FE AABB DEADBEEF",
         EOFValidationError::invalid_section_bodies_size);
-}
-
-TEST_F(eof_validation, EOF1_no_type_section)
-{
-    add_test_case("EF0001 0200010001 00 FE", EOFValidationError::type_section_missing);
-    add_test_case("EF0001 02000200010001 00 FE FE", EOFValidationError::type_section_missing);
 }
 
 TEST_F(eof_validation, EOF1_multiple_type_sections)
@@ -252,7 +226,7 @@ TEST_F(eof_validation, EOF1_multiple_type_sections)
         EOFValidationError::code_section_missing);
 
     // Section order is must be (Types, Code+, Data)
-    add_test_case("EF0001 030002 010001 010001 040002 00 0000 FE FE 0000",
+    add_test_case("EF0001 030002 010001 010001 FF0002 00 0000 FE FE 0000",
         EOFValidationError::type_section_missing);
 }
 
@@ -264,61 +238,66 @@ TEST_F(eof_validation, EOF1_type_section_not_first)
     add_test_case(
         "EF0001 02000200010001 010004 00 FE FE 00800000", EOFValidationError::type_section_missing);
 
-    add_test_case("EF0001 0200010001 010004 040003 00 FE 00800000 AABBCC",
+    add_test_case("EF0001 0200010001 010004 FF0003 00 FE 00800000 AABBCC",
         EOFValidationError::type_section_missing);
 
-    add_test_case("EF0001 0200010001 040003 010004 00 FE AABBCC 00800000",
+    add_test_case("EF0001 0200010001 FF0003 010004 00 FE AABBCC 00800000",
         EOFValidationError::type_section_missing);
 }
 
 TEST_F(eof_validation, EOF1_invalid_type_section_size)
 {
     add_test_case(
-        "EF0001 010001 0200010001 040000 00 00 FE", EOFValidationError::invalid_type_section_size);
-    add_test_case("EF0001 010002 0200010001 040000 00 0080 FE",
+        "EF0001 010001 0200010001 FF0000 00 00 FE", EOFValidationError::invalid_type_section_size);
+    add_test_case("EF0001 010002 0200010001 FF0000 00 0080 FE",
         EOFValidationError::invalid_type_section_size);
-    add_test_case("EF0001 010008 0200010001 040000 00 0080000000000000 FE",
+    add_test_case("EF0001 010008 0200010001 FF0000 00 0080000000000000 FE",
         EOFValidationError::invalid_type_section_size);
 
-    add_test_case("EF0001 010008 020003000100010001 040000 00 0080000000800000 FE FE FE",
+    add_test_case("EF0001 010008 020003000100010001 FF0000 00 0080000000800000 FE FE FE",
         EOFValidationError::invalid_type_section_size);
     add_test_case(
-        "EF0001 010010 020003000100010001 040000 00 00800000008000000080000000800000 FE FE FE",
+        "EF0001 010010 020003000100010001 FF0000 00 00800000008000000080000000800000 FE FE FE",
         EOFValidationError::invalid_type_section_size);
 }
 
 TEST_F(eof_validation, EOF1_invalid_section_0_type)
 {
-    add_test_case("EF0001 010004 0200010001 040000 00 00000000 00",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 00000000 00",
         EOFValidationError::invalid_first_section_type);
-    add_test_case("EF0001 010004 0200010003 040000 00 00010000 60005C",
+    add_test_case("EF0001 010004 0200010003 FF0000 00 00010000 60005C",
         EOFValidationError::invalid_first_section_type);
-    add_test_case("EF0001 010004 0200010001 040000 00 01800000 FE",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 01800000 FE",
         EOFValidationError::invalid_first_section_type);
-    add_test_case("EF0001 010004 0200010003 040000 00 02030000 60005C",
+    add_test_case("EF0001 010004 0200010003 FF0000 00 02030000 60005C",
         EOFValidationError::invalid_first_section_type);
 }
 
 TEST_F(eof_validation, EOF1_too_many_code_sections)
 {
-    auto eof_code_sections_1024 = eof_bytecode(jumpf(1));
-    for (int i = 1; i < 1023; ++i)
-        eof_code_sections_1024 =
-            eof_code_sections_1024.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
+    auto eof_code_sections_1023 = eof_bytecode(jumpf(1));
+    for (int i = 1; i < 1022; ++i)
+        eof_code_sections_1023 =
+            eof_code_sections_1023.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80);
+
+    auto eof_code_sections_1024 = eof_code_sections_1023;
+    eof_code_sections_1023 = eof_code_sections_1023.code(OP_STOP, 0, 0x80);
+    eof_code_sections_1024 = eof_code_sections_1024.code(jumpf(1023), 0, 0x80);
 
     auto eof_code_sections_1025 = eof_code_sections_1024;
-    eof_code_sections_1024 = eof_code_sections_1024.code(OP_STOP, 0, 0x80, 0);
+    eof_code_sections_1024 = eof_code_sections_1024.code(OP_STOP, 0, 0x80);
     eof_code_sections_1025 =
-        eof_code_sections_1025.code(jumpf(1024), 0, 0x80, 0).code(OP_STOP, 0, 0x80, 0);
+        eof_code_sections_1025.code(jumpf(1024), 0, 0x80).code(OP_STOP, 0, 0x80);
 
-    add_test_case(eof_code_sections_1024, EOFValidationError::success, "valid");
-
-    add_test_case(eof_code_sections_1025, EOFValidationError::too_many_code_sections, "invalid");
+    add_test_case(eof_code_sections_1023, EOFValidationError::success, "valid_1023");
+    add_test_case(eof_code_sections_1024, EOFValidationError::success, "valid_1024");
+    add_test_case(
+        eof_code_sections_1025, EOFValidationError::too_many_code_sections, "invalid_1025");
 }
 
 TEST_F(eof_validation, EOF1_undefined_opcodes)
 {
-    const auto& gas_table = evmone::instr::gas_costs[EVMC_PRAGUE];
+    const auto& gas_table = evmone::instr::gas_costs[EVMC_EXPERIMENTAL];
 
     for (uint16_t opcode = 0; opcode <= 0xff; ++opcode)
     {
@@ -328,9 +307,9 @@ TEST_F(eof_validation, EOF1_undefined_opcodes)
             opcode == OP_SWAPN || opcode == OP_EXCHANGE || opcode == OP_RJUMP ||
             opcode == OP_RJUMPI || opcode == OP_CALLF || opcode == OP_RJUMPV ||
             opcode == OP_DATALOADN || opcode == OP_JUMPF || opcode == OP_EOFCREATE ||
-            opcode == OP_RETURNCONTRACT)
+            opcode == OP_RETURNCODE)
             continue;
-        // These opcodes are deprecated since Prague.
+        // These opcodes are deprecated since Osaka.
         // gas_cost table current implementation does not allow to undef instructions.
         if (opcode == OP_JUMP || opcode == OP_JUMPI || opcode == OP_PC || opcode == OP_CALLCODE ||
             opcode == OP_SELFDESTRUCT || opcode == OP_CALL || opcode == OP_STATICCALL ||
@@ -346,7 +325,7 @@ TEST_F(eof_validation, EOF1_undefined_opcodes)
         if (opcode == OP_RETF)
         {
             // RETF can be tested in 2nd code section.
-            add_test_case(eof_bytecode(callf(1) + OP_STOP).code(OP_RETF, 0, 0, 0), expected);
+            add_test_case(eof_bytecode(callf(1) + OP_STOP).code(OP_RETF, 0, 0), expected);
         }
         else
         {
@@ -370,7 +349,7 @@ TEST_F(eof_validation, EOF1_truncated_push)
         const auto required_bytes = static_cast<size_t>(opcode) - OP_PUSH1 + 1;
         for (size_t i = 0; i < required_bytes; ++i)
         {
-            auto eof_header = "EF0001 010004 0200010001 040000 00 00800000"_hex;
+            auto eof_header = "EF0001 010004 0200010001 FF0000 00 00800000"_hex;
             auto& code_size_byte = eof_header[10];
             const bytes code{opcode + bytes(i, 0)};
             code_size_byte = static_cast<uint8_t>(code.size());
@@ -438,38 +417,38 @@ TEST_F(eof_validation, EOF1_valid_rjumpv)
 
 TEST_F(eof_validation, EOF1_rjump_truncated)
 {
-    add_test_case("EF0001 010004 0200010001 040000 00 00800000 E0",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 00800000 E0",
         EOFValidationError::truncated_instruction);
 
-    add_test_case("EF0001 010004 0200010002 040000 00 00800000 E000",
+    add_test_case("EF0001 010004 0200010002 FF0000 00 00800000 E000",
         EOFValidationError::truncated_instruction);
 }
 
 TEST_F(eof_validation, EOF1_rjumpi_truncated)
 {
-    add_test_case("EF0001 010004 0200010003 040000 00 00800000 6000E1",
+    add_test_case("EF0001 010004 0200010003 FF0000 00 00800000 6000E1",
         EOFValidationError::truncated_instruction);
 
-    add_test_case("EF0001 010004 0200010004 040000 00 00800000 6000E100",
+    add_test_case("EF0001 010004 0200010004 FF0000 00 00800000 6000E100",
         EOFValidationError::truncated_instruction);
 }
 
 TEST_F(eof_validation, EOF1_rjumpv_truncated)
 {
     // table = [0] case = 0
-    add_test_case("EF0001 010004 0200010005 040000 00 00800000 6000E20000",
+    add_test_case("EF0001 010004 0200010005 FF0000 00 00800000 6000E20000",
         EOFValidationError::truncated_instruction);
 
     // table = [0,3] case = 0
-    add_test_case("EF0001 010004 0200010007 040000 00 00800000 6000E201000000",
+    add_test_case("EF0001 010004 0200010007 FF0000 00 00800000 6000E201000000",
         EOFValidationError::truncated_instruction);
 
     // table = [0,3] case = 2
-    add_test_case("EF0001 010004 0200010006 040000 00 00800000 6002E2010000",
+    add_test_case("EF0001 010004 0200010006 FF0000 00 00800000 6002E2010000",
         EOFValidationError::truncated_instruction);
 
     // table = [0,3,-10] case = 2
-    add_test_case("EF0001 010004 0200010009 040000 00 00800000 6002E20200000003FF",
+    add_test_case("EF0001 010004 0200010009 FF0000 00 00800000 6002E20200000003FF",
         EOFValidationError::truncated_instruction);
 }
 
@@ -502,9 +481,8 @@ TEST_F(eof_validation, EOF1_rjump_invalid_destination)
             .container(embedded),
         EOFValidationError::invalid_rjump_destination);
 
-    // To RETURNCONTRACT immediate
-    add_test_case(
-        eof_bytecode(rjump(5) + 0 + 0 + OP_RETURNCONTRACT + Opcode{0}, 2).container(embedded),
+    // To RETURNCODE immediate
+    add_test_case(eof_bytecode(rjump(5) + 0 + 0 + OP_RETURNCODE + Opcode{0}, 2).container(embedded),
         ContainerKind::initcode, EOFValidationError::invalid_rjump_destination);
 }
 
@@ -542,9 +520,9 @@ TEST_F(eof_validation, EOF1_rjumpi_invalid_destination)
             .container(embedded),
         EOFValidationError::invalid_rjump_destination);
 
-    // To RETURNCONTRACT immediate
+    // To RETURNCODE immediate
     add_test_case(
-        eof_bytecode(rjumpi(5, 0) + 0 + 0 + OP_RETURNCONTRACT + Opcode{0}, 2).container(embedded),
+        eof_bytecode(rjumpi(5, 0) + 0 + 0 + OP_RETURNCODE + Opcode{0}, 2).container(embedded),
         ContainerKind::initcode, EOFValidationError::invalid_rjump_destination);
 }
 
@@ -599,60 +577,61 @@ TEST_F(eof_validation, EOF1_rjumpv_invalid_destination)
             .container(embedded),
         EOFValidationError::invalid_rjump_destination);
 
-    // To RETURNCONTRACT immediate
+    // To RETURNCODE immediate
     add_test_case(
-        eof_bytecode(rjumpv({5}, 0) + 0 + 0 + OP_RETURNCONTRACT + Opcode{0}, 2).container(embedded),
+        eof_bytecode(rjumpv({5}, 0) + 0 + 0 + OP_RETURNCODE + Opcode{0}, 2).container(embedded),
         ContainerKind::initcode, EOFValidationError::invalid_rjump_destination);
 }
 
 TEST_F(eof_validation, EOF1_section_order)
 {
     // 01 02 04
-    add_test_case("EF0001 010004 0200010006 040002 00 00800001 6000E0000000 AABB",
+    add_test_case("EF0001 010004 0200010006 FF0002 00 00800001 6000E0000000 AABB",
         EOFValidationError::success);
 
     // 01 04 02
-    add_test_case("EF0001 010004 040002 0200010006 00 00800000 AABB 6000E0000000",
+    add_test_case("EF0001 010004 FF0002 0200010006 00 00800000 AABB 6000E0000000",
         EOFValidationError::code_section_missing);
 
     // 02 01 04
-    add_test_case("EF0001 0200010006 010004 040002 00 6000E0000000 00800000 AABB",
+    add_test_case("EF0001 0200010006 010004 FF0002 00 6000E0000000 00800000 AABB",
         EOFValidationError::type_section_missing);
 
     // 02 04 01
-    add_test_case("EF0001 0200010006 040002 010004 00 6000E0000000 AABB 00800000",
+    add_test_case("EF0001 0200010006 FF0002 010004 00 6000E0000000 AABB 00800000",
         EOFValidationError::type_section_missing);
 
     // 04 01 02
-    add_test_case("EF0001 040002 010004 0200010006 00 AABB 00800000 6000E0000000",
+    add_test_case("EF0001 FF0002 010004 0200010006 00 AABB 00800000 6000E0000000",
         EOFValidationError::type_section_missing);
 
     // 04 02 01
-    add_test_case("EF0001 040002 0200010006 010004 00 AABB 6000E0000000 00800000",
+    add_test_case("EF0001 FF0002 0200010006 010004 00 AABB 6000E0000000 00800000",
         EOFValidationError::type_section_missing);
 
     // 01 02 03 04
     add_test_case(
-        "EF0001 010004 0200010007 0300010014 040002 00 00800004 5F5F5F5FEC0000 "
-        "EF000101000402000100010400000000800000FE AABB",
+        "EF0001 010004 0200010007 03000100000014 FF0002 00 00800004 5F5F5F5FEC0000 "
+        "EF00010100040200010001FF00000000800000FE AABB",
         EOFValidationError::success);
 
     // 03 01 02 04
     add_test_case(
-        "EF0001 0300010014 010004 0200010007 040002 00 EF000101000402000100010400000000800000FE "
+        "EF0001 03000100000014 010004 0200010007 FF0002 00 "
+        "EF00010100040200010001FF00000000800000FE "
         "00800004 5F5F5F5FEC0000 AABB",
         EOFValidationError::type_section_missing);
 
     // 01 03 02 04
     add_test_case(
-        "EF0001 010004 0300010014 0200010007 040002 00 00800004 "
-        "EF000101000402000100010400000000800000FE 5F5F5F5FEC0000 AABB",
+        "EF0001 010004 03000100000014 0200010007 FF0002 00 00800004 "
+        "EF00010100040200010001FF00000000800000FE 5F5F5F5FEC0000 AABB",
         EOFValidationError::code_section_missing);
 
     // 01 02 04 03
     add_test_case(
-        "EF0001 010004 0200010007 040002 0300010014 00 00800004 5F5F5F5FEC0000 AABB "
-        "EF000101000402000100010400000000800000FE",
+        "EF0001 010004 0200010007 FF0002 03000100000014 00 00800004 5F5F5F5FEC0000 AABB "
+        "EF00010100040200010001FF00000000800000FE",
         EOFValidationError::header_terminator_missing);
 }
 
@@ -666,11 +645,10 @@ TEST_F(eof_validation, deprecated_instructions)
 
 TEST_F(eof_validation, max_arguments_count)
 {
-    add_test_case(
-        eof_bytecode(127 * push0() + callf(1) + OP_STOP, 127).code(OP_RETF, 127, 127, 127),
+    add_test_case(eof_bytecode(127 * push0() + callf(1) + OP_STOP, 127).code(OP_RETF, 127, 127),
         EOFValidationError::success);
 
-    add_test_case(eof_bytecode(callf(1) + OP_STOP, 0).code(OP_RETF, 128, 128, 128),
+    add_test_case(eof_bytecode(callf(1) + OP_STOP, 0).code(OP_RETF, 128, 128),
         EOFValidationError::inputs_outputs_num_above_limit);
 
     add_test_case(eof_bytecode(callf(1) + OP_STOP, 127).code(127 * push(1) + OP_RETF, 0, 127, 127),
@@ -679,12 +657,12 @@ TEST_F(eof_validation, max_arguments_count)
     add_test_case(eof_bytecode(callf(1) + OP_STOP, 129).code(129 * push(1) + OP_RETF, 0, 129, 129),
         EOFValidationError::inputs_outputs_num_above_limit);
 
-    add_test_case(eof_bytecode(127 * push0() + callf(1) + OP_STOP, 127)
-                      .code(127 * OP_POP + OP_RETF, 127, 0, 127),
+    add_test_case(
+        eof_bytecode(127 * push0() + callf(1) + OP_STOP, 127).code(127 * OP_POP + OP_RETF, 127, 0),
         EOFValidationError::success);
 
-    add_test_case(eof_bytecode(128 * push(1) + callf(1) + OP_STOP, 128)
-                      .code(128 * OP_POP + OP_RETF, 128, 0, 128),
+    add_test_case(
+        eof_bytecode(128 * push(1) + callf(1) + OP_STOP, 128).code(128 * OP_POP + OP_RETF, 128, 0),
         EOFValidationError::inputs_outputs_num_above_limit);
 }
 
@@ -694,24 +672,24 @@ TEST_F(eof_validation, max_stack_height)
                       .code(0x3FF * push(1) + 0x3FF * OP_POP + OP_RETF, 0, 0, 1023),
         EOFValidationError::success);
 
-    add_test_case(eof_bytecode(1023 * push(1) + 1023 * OP_POP + callf(1) + OP_STOP, 1023)
-                      .code(OP_RETF, 0, 0, 0),
+    add_test_case(
+        eof_bytecode(1023 * push(1) + 1023 * OP_POP + callf(1) + OP_STOP, 1023).code(OP_RETF, 0, 0),
         EOFValidationError::success);
 
     add_test_case(eof_bytecode(1024 * push(1) + OP_STOP, 1024),
-        EOFValidationError::max_stack_height_above_limit);
+        EOFValidationError::max_stack_increase_above_limit);
 
     add_test_case(eof_bytecode(0x400 * push(1) + callf(1) + 0x400 * OP_POP + OP_STOP, 1024)
-                      .code(OP_RETF, 0, 0, 0),
-        EOFValidationError::max_stack_height_above_limit);
+                      .code(OP_RETF, 0, 0),
+        EOFValidationError::max_stack_increase_above_limit);
 
     add_test_case(eof_bytecode(callf(1) + OP_STOP, 0)
                       .code(0x400 * push(1) + 0x400 * OP_POP + OP_RETF, 0, 0, 1023),
-        EOFValidationError::invalid_max_stack_height);
+        EOFValidationError::invalid_max_stack_increase);
 
-    add_test_case(eof_bytecode(1024 * push(1) + callf(1) + 1024 * OP_POP + OP_STOP, 1023)
-                      .code(OP_RETF, 0, 0, 0),
-        EOFValidationError::invalid_max_stack_height);
+    add_test_case(
+        eof_bytecode(1024 * push(1) + callf(1) + 1024 * OP_POP + OP_STOP, 1023).code(OP_RETF, 0, 0),
+        EOFValidationError::invalid_max_stack_increase);
 
     add_test_case(eof_bytecode(rjumpi(2, 0) + 1 + OP_STOP, 1), EOFValidationError::success);
 
@@ -724,10 +702,10 @@ TEST_F(eof_validation, max_stack_height)
 
 TEST_F(eof_validation, EOF1_callf_truncated)
 {
-    add_test_case("EF0001 010004 0200010001 040000 00 00800000 E3",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 00800000 E3",
         EOFValidationError::truncated_instruction);
 
-    add_test_case("EF0001 010004 0200010002 040000 00 00800000 E300",
+    add_test_case("EF0001 010004 0200010002 FF0000 00 00800000 E300",
         EOFValidationError::truncated_instruction);
 }
 
@@ -750,46 +728,16 @@ TEST_F(eof_validation, data_section_missing)
 TEST_F(eof_validation, multiple_code_sections_headers)
 {
     add_test_case(
-        "0xef0001 010008 020001 0004 020001 0005 040000 00 00800000 045c0000 00405c00 00002e0005",
+        "0xef0001 010008 020001 0004 020001 0005 FF0000 00 00800000 045c0000 00405c00 00002e0005",
         EOFValidationError::data_section_missing);
-}
-
-TEST_F(eof_validation, many_code_sections_1023)
-{
-    auto code = eof_bytecode(jumpf(1));
-    for (auto i = 1; i < 1022; ++i)
-        code = code.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
-    code = code.code(OP_STOP, 0, 0x80, 0);
-
-    add_test_case(code, EOFValidationError::success);
-}
-
-TEST_F(eof_validation, many_code_sections_1024)
-{
-    auto code = eof_bytecode(jumpf(1));
-    for (auto i = 1; i < 1023; ++i)
-        code = code.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
-    code = code.code(OP_STOP, 0, 0x80, 0);
-
-    add_test_case(code, EOFValidationError::success);
-}
-
-TEST_F(eof_validation, too_many_code_sections)
-{
-    auto code = eof_bytecode(jumpf(1));
-    for (auto i = 1; i < 1024; ++i)
-        code = code.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
-    code = code.code(OP_STOP, 0, 0x80, 0);
-
-    add_test_case(code, EOFValidationError::too_many_code_sections);
 }
 
 TEST_F(eof_validation, EOF1_dataloadn_truncated)
 {
-    add_test_case("EF0001 010004 0200010001 040000 00 00800000 D1",
+    add_test_case("EF0001 010004 0200010001 FF0000 00 00800000 D1",
         EOFValidationError::truncated_instruction);
 
-    add_test_case("EF0001 010004 0200010002 040000 00 00800000 D100",
+    add_test_case("EF0001 010004 0200010002 FF0000 00 00800000 D100",
         EOFValidationError::truncated_instruction);
 }
 
@@ -841,48 +789,48 @@ TEST_F(eof_validation, non_returning_status)
     // Non-returning with no JUMPF and no RETF
     add_test_case(eof_bytecode(OP_STOP), EOFValidationError::success);
     // Non-returning with JUMPF
-    add_test_case(eof_bytecode(jumpf(1)).code(OP_STOP, 0, 0x80, 0), EOFValidationError::success);
+    add_test_case(eof_bytecode(jumpf(1)).code(OP_STOP, 0, 0x80), EOFValidationError::success);
 
     // Returning with RETF
     add_test_case(
-        eof_bytecode(callf(1) + OP_STOP).code(OP_RETF, 0, 0, 0), EOFValidationError::success);
+        eof_bytecode(callf(1) + OP_STOP).code(OP_RETF, 0, 0), EOFValidationError::success);
     // Returning with JUMPF
-    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(jumpf(2), 0, 0, 0).code(OP_RETF, 0, 0, 0),
+    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(jumpf(2), 0, 0).code(OP_RETF, 0, 0),
         EOFValidationError::success);
     // Returning with JUMPF to returning and RETF
     add_test_case(eof_bytecode(OP_PUSH0 + callf(1) + OP_STOP, 1)
-                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(2), 1, 0, 1)
-                      .code(OP_RETF, 0, 0, 0),
+                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(2), 1, 0)
+                      .code(OP_RETF, 0, 0),
         EOFValidationError::success);
     // Returning with JUMPF to non-returning and RETF
     add_test_case(eof_bytecode(OP_PUSH0 + callf(1) + OP_STOP, 1)
-                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(0), 1, 0, 1),
+                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(0), 1, 0),
         EOFValidationError::success);
 
     // Invalid with RETF
-    add_test_case(eof_bytecode(jumpf(1)).code(OP_RETF, 0, 0x80, 0),
+    add_test_case(eof_bytecode(jumpf(1)).code(OP_RETF, 0, 0x80),
         EOFValidationError::invalid_non_returning_flag);
     add_test_case(eof_bytecode(OP_RETF), EOFValidationError::invalid_non_returning_flag);
     // Invalid with JUMPF to returning
-    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80, 0).code(OP_RETF, 0, 0, 0),
+    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80).code(OP_RETF, 0, 0),
         EOFValidationError::invalid_non_returning_flag);
     // Invalid with JUMPF to non-returning
-    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(0), 0, 0, 0),
+    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(0), 0, 0),
         EOFValidationError::invalid_non_returning_flag);
     // Invalid with JUMPF to returning and RETF
     add_test_case(eof_bytecode(OP_PUSH0 + jumpf(1), 1)
-                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(2), 1, 0x80, 1)
-                      .code(OP_RETF, 0, 0, 0),
+                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(2), 1, 0x80)
+                      .code(OP_RETF, 0, 0),
         EOFValidationError::invalid_non_returning_flag);
     // Invalid with JUMPF to non-returning and RETF
     add_test_case(eof_bytecode(OP_PUSH0 + jumpf(1), 1)
-                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(0), 1, 0x80, 1),
+                      .code(bytecode{OP_RJUMPI} + "0001" + OP_RETF + jumpf(0), 1, 0x80),
         EOFValidationError::invalid_non_returning_flag);
 
     // Circular JUMPF: can be both returning and non-returning
-    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80, 0).code(jumpf(1), 0, 0x80, 0),
+    add_test_case(eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80).code(jumpf(1), 0, 0x80),
         EOFValidationError::success);
-    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(jumpf(2), 0, 0, 0).code(jumpf(1), 0, 0, 0),
+    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(jumpf(2), 0, 0).code(jumpf(1), 0, 0),
         EOFValidationError::success);
 }
 
@@ -890,14 +838,14 @@ TEST_F(eof_validation, callf_into_nonreturning)
 {
     // function 0: (0, non-returning) : CALLF{1} STOP
     // function 2: (1, non-returning) : STOP
-    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(OP_STOP, 0, 0x80, 0),
+    add_test_case(eof_bytecode(callf(1) + OP_STOP).code(OP_STOP, 0, 0x80),
         EOFValidationError::callf_to_non_returning_function);
 }
 
 TEST_F(eof_validation, jumpf_equal_outputs)
 {
     add_test_case(eof_bytecode(callf(1) + OP_STOP, 3)
-                      .code(jumpf(2), 0, 3, 0)
+                      .code(jumpf(2), 0, 3)
                       .code(3 * OP_PUSH0 + OP_RETF, 0, 3, 3),
         EOFValidationError::success);
 }
@@ -913,7 +861,7 @@ TEST_F(eof_validation, jumpf_compatible_outputs)
 TEST_F(eof_validation, jumpf_incompatible_outputs)
 {
     const auto code = eof_bytecode(callf(1) + OP_STOP, 3)
-                          .code(jumpf(2), 0, 3, 0)
+                          .code(jumpf(2), 0, 3)
                           .code(5 * OP_PUSH0 + OP_RETF, 0, 5, 3);
 
     add_test_case(code, EOFValidationError::jumpf_destination_incompatible_outputs);
@@ -921,47 +869,47 @@ TEST_F(eof_validation, jumpf_incompatible_outputs)
 
 TEST_F(eof_validation, unreachable_code_sections)
 {
-    add_test_case(eof_bytecode(OP_INVALID).code(OP_INVALID, 0, 0x80, 0),
+    add_test_case(eof_bytecode(OP_INVALID).code(OP_INVALID, 0, 0x80),
         EOFValidationError::unreachable_code_sections);
 
     add_test_case(eof_bytecode(callf(1) + OP_STOP, 0)
-                      .code(bytecode{"5B"} + OP_RETF, 0, 0, 0)
-                      .code(bytecode{"FE"}, 0, 0x80, 0),
+                      .code(bytecode{"5B"} + OP_RETF, 0, 0)
+                      .code(bytecode{"FE"}, 0, 0x80),
         EOFValidationError::unreachable_code_sections);
 
 
     add_test_case(eof_bytecode(callf(2) + OP_STOP, 0)
-                      .code(bytecode{"FE"}, 0, 0x80, 0)
-                      .code(bytecode{"5B"} + OP_RETF, 0, 0, 0),
+                      .code(bytecode{"FE"}, 0, 0x80)
+                      .code(bytecode{"5B"} + OP_RETF, 0, 0),
         EOFValidationError::unreachable_code_sections);
 
     add_test_case(eof_bytecode(callf(3) + OP_STOP, 0)
-                      .code(bytecode{"FE"}, 0, 0x80, 0)
-                      .code(bytecode{"5B"} + OP_RETF, 0, 0, 0)
-                      .code(callf(2) + OP_RETF, 0, 0, 0),
+                      .code(bytecode{"FE"}, 0, 0x80)
+                      .code(bytecode{"5B"} + OP_RETF, 0, 0)
+                      .code(callf(2) + OP_RETF, 0, 0),
         EOFValidationError::unreachable_code_sections);
 
-    add_test_case(eof_bytecode(jumpf(0)).code(jumpf(1), 0, 0x80, 0),
+    add_test_case(eof_bytecode(jumpf(0)).code(jumpf(1), 0, 0x80),
         EOFValidationError::unreachable_code_sections);
 
     add_test_case(eof_bytecode(jumpf(1))
-                      .code(bytecode{OP_STOP}, 0, 0x80, 0)
-                      .code(bytecode{"5B"} + OP_RETF, 0, 0, 0),
+                      .code(bytecode{OP_STOP}, 0, 0x80)
+                      .code(bytecode{"5B"} + OP_RETF, 0, 0),
         EOFValidationError::unreachable_code_sections);
 
     {
-        auto code_sections_256_err_001 = eof_bytecode(jumpf(1)).code(jumpf(1), 0, 0x80, 0);
-        auto code_sections_256_err_254 = eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80, 0);
+        auto code_sections_256_err_001 = eof_bytecode(jumpf(1)).code(jumpf(1), 0, 0x80);
+        auto code_sections_256_err_254 = eof_bytecode(jumpf(1)).code(jumpf(2), 0, 0x80);
         for (int i = 2; i < 254; ++i)
         {
-            code_sections_256_err_001.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
-            code_sections_256_err_254.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80, 0);
+            code_sections_256_err_001.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80);
+            code_sections_256_err_254.code(jumpf(static_cast<uint16_t>(i + 1)), 0, 0x80);
         }
 
-        code_sections_256_err_001.code(jumpf(255), 0, 0x80, 0)
-            .code(3 * bytecode{"5B"} + OP_STOP, 0, 0x80, 0);
-        code_sections_256_err_254.code(jumpf(254), 0, 0x80, 0)
-            .code(3 * bytecode{"5B"} + OP_STOP, 0, 0x80, 0);
+        code_sections_256_err_001.code(jumpf(255), 0, 0x80)
+            .code(3 * bytecode{"5B"} + OP_STOP, 0, 0x80);
+        code_sections_256_err_254.code(jumpf(254), 0, 0x80)
+            .code(3 * bytecode{"5B"} + OP_STOP, 0, 0x80);
 
         // Code Section 1 calls itself instead of code section 2, leaving code section 2 unreachable
         add_test_case(code_sections_256_err_001, EOFValidationError::unreachable_code_sections);
@@ -972,16 +920,16 @@ TEST_F(eof_validation, unreachable_code_sections)
 
         // Code Section 0 calls section 1, which calls itself, leaving section
         // 2 unreachable
-        add_test_case(eof_bytecode(jumpf(1)).code(jumpf(1), 0, 0x80, 0).code(jumpf(2), 0, 0x80, 0),
+        add_test_case(eof_bytecode(jumpf(1)).code(jumpf(1), 0, 0x80).code(jumpf(2), 0, 0x80),
             EOFValidationError::unreachable_code_sections);
 
         // Code Section 0 calls section 1, which calls section 2, section 3 and
         // 4 call each other but are not reachable from section 0
         add_test_case(eof_bytecode(jumpf(1))
-                          .code(jumpf(2), 0, 0x80, 0)
-                          .code(OP_INVALID, 0, 0x80, 0)
-                          .code(jumpf(4), 0, 0x80, 0)
-                          .code(jumpf(3), 0, 0x80, 0),
+                          .code(jumpf(2), 0, 0x80)
+                          .code(OP_INVALID, 0, 0x80)
+                          .code(jumpf(4), 0, 0x80)
+                          .code(jumpf(3), 0, 0x80),
             EOFValidationError::unreachable_code_sections);
     }
 }
@@ -996,7 +944,12 @@ TEST_F(eof_validation, EOF1_embedded_container)
     // no data section in container, but anticipated aux_data
     // data section is allowed to be truncated in runtime subcontainer
     add_test_case(
-        eof_bytecode(returncontract(0, 0, 2), 2).container(eof_bytecode(OP_INVALID).data("", 2)),
+        eof_bytecode(returncode(0, 0, 2), 2).container(eof_bytecode(OP_INVALID).data("", 2)),
+        ContainerKind::initcode, EOFValidationError::success);
+
+    // data section is allowed to be partially truncated in runtime subcontainer
+    add_test_case(
+        eof_bytecode(returncode(0, 0, 1), 2).container(eof_bytecode(OP_INVALID).data("aa", 2)),
         ContainerKind::initcode, EOFValidationError::success);
 
     // with data section
@@ -1034,18 +987,34 @@ TEST_F(eof_validation, EOF1_embedded_container_invalid)
         "EF0001 010004 0200010006 030001", EOFValidationError::section_headers_not_terminated);
     add_test_case("EF0001 010004 0200010006 03000100", EOFValidationError::incomplete_section_size);
     add_test_case(
-        "EF0001 010004 0200010006 0300010014", EOFValidationError::section_headers_not_terminated);
+        "EF0001 010004 0200010006 0300010000", EOFValidationError::incomplete_section_size);
+    add_test_case(
+        "EF0001 010004 0200010006 030001000000", EOFValidationError::incomplete_section_size);
+    add_test_case("EF0001 010004 0200010006 03000100000014",
+        EOFValidationError::section_headers_not_terminated);
 
     // Zero container sections
-    add_test_case("EF0001 010004 0200010006 030000 040000 00 00800001 60005D000000",
+    add_test_case("EF0001 010004 0200010006 030000 FF0000 00 00800001 6000E1000000",
         EOFValidationError::zero_section_size);
 
     // Container section with 0 size
-    add_test_case("EF0001 010004 0200010006 0300010000 040000 00 00800001 60005D000000",
+    add_test_case("EF0001 010004 0200010006 03000100000000 FF0000 00 00800001 6000E1000000",
         EOFValidationError::zero_section_size);
 
+    // Container section too big - 65536 bytes
+    add_test_case("EF0001 010004 0200010006 03000100010000 FF0000 00 00800001 6000E1000000" +
+                      bytes(0xffff, 0x5b) + "00",
+        EOFValidationError::container_size_above_limit);
+    // 256 container sections with 256 bytes each
+    add_test_case("EF0001 010004 0200010006 030100" + 256 * bytecode("0100") +
+                      "FF0000 00 00800001 6000E1000000" + 256 * bytecode(bytes(255, 0x5b) + "00"),
+        EOFValidationError::container_size_above_limit);
+    // Container section too big, body truncated
+    add_test_case("EF0001 010004 0200010006 030001ffffffff FF0000 00 00800001 6000E1000000",
+        EOFValidationError::invalid_section_bodies_size);
+
     // Container body missing
-    add_test_case("EF0001 010004 0200010006 0300010014 040000 00 00800001 60005D000000",
+    add_test_case("EF0001 010004 0200010006 03000100000014 FF0000 00 00800001 6000E1000000",
         EOFValidationError::invalid_section_bodies_size);
 
     // Too many container sections
@@ -1116,15 +1085,20 @@ TEST_F(eof_validation, EOF1_eofcreate_invalid)
         EOFValidationError::eofcreate_with_truncated_container);
 }
 
-TEST_F(eof_validation, EOF1_returncontract_valid)
+TEST_F(eof_validation, EOF1_returncode_valid)
 {
     // deploy_container_index = 0
     const auto embedded = eof_bytecode(bytecode{OP_INVALID});
-    add_test_case(eof_bytecode(returncontract(0, 0, 0), 2).container(embedded),
-        ContainerKind::initcode, EOFValidationError::success);
+    add_test_case(eof_bytecode(returncode(0, 0, 0), 2).container(embedded), ContainerKind::initcode,
+        EOFValidationError::success);
+
+    // deploy_container_index = 0 from eofcreate
+    add_test_case(eof_bytecode(eofcreate() + OP_STOP, 4)
+                      .container(eof_bytecode(returncode(0, 0, 0), 2).container(embedded)),
+        EOFValidationError::success);
 
     // deploy_container_index = 0, 1
-    add_test_case(eof_bytecode(rjumpi(6, 0) + returncontract(0, 0, 0) + returncontract(1, 0, 0), 2)
+    add_test_case(eof_bytecode(rjumpi(6, 0) + returncode(0, 0, 0) + returncode(1, 0, 0), 2)
                       .container(embedded)
                       .container(embedded),
         ContainerKind::initcode, EOFValidationError::success);
@@ -1132,7 +1106,7 @@ TEST_F(eof_validation, EOF1_returncontract_valid)
     // deploy_container_index = 0..255
     bytecode code;
     for (auto i = 0; i < 256; ++i)
-        code += rjumpi(6, 0) + returncontract(static_cast<uint8_t>(i), 0, 0);
+        code += rjumpi(6, 0) + returncode(static_cast<uint8_t>(i), 0, 0);
     code += revert(0, 0);
     auto cont = eof_bytecode(code, 2);
     for (auto i = 0; i < 256; ++i)
@@ -1140,23 +1114,22 @@ TEST_F(eof_validation, EOF1_returncontract_valid)
     add_test_case(cont, ContainerKind::initcode, EOFValidationError::success);
 }
 
-TEST_F(eof_validation, EOF1_returncontract_invalid)
+TEST_F(eof_validation, EOF1_returncode_invalid)
 {
     // truncated immediate
     const auto embedded = eof_bytecode(bytecode{OP_INVALID});
-    add_test_case(eof_bytecode(bytecode(0) + 0 + OP_RETURNCONTRACT, 4).container(embedded),
+    add_test_case(eof_bytecode(bytecode(0) + 0 + OP_RETURNCODE, 4).container(embedded),
         ContainerKind::initcode, EOFValidationError::truncated_instruction);
 
     // referring to non-existent container section
-    add_test_case(
-        eof_bytecode(bytecode(0) + 0 + OP_RETURNCONTRACT + Opcode{1}, 4).container(embedded),
+    add_test_case(eof_bytecode(bytecode(0) + 0 + OP_RETURNCODE + Opcode{1}, 4).container(embedded),
         ContainerKind::initcode, EOFValidationError::invalid_container_section_index);
     add_test_case(
-        eof_bytecode(bytecode(0) + 0 + OP_RETURNCONTRACT + Opcode{0xff}, 4).container(embedded),
+        eof_bytecode(bytecode(0) + 0 + OP_RETURNCODE + Opcode{0xff}, 4).container(embedded),
         ContainerKind::initcode, EOFValidationError::invalid_container_section_index);
 
-    // Unreachable code after RETURNCONTRACT
-    add_test_case(eof_bytecode(bytecode(0) + 0 + OP_RETURNCONTRACT + Opcode{0} + revert(0, 0), 2)
+    // Unreachable code after RETURNCODE
+    add_test_case(eof_bytecode(bytecode(0) + 0 + OP_RETURNCODE + Opcode{0} + revert(0, 0), 2)
                       .container(embedded),
         ContainerKind::initcode, EOFValidationError::unreachable_instructions);
 }
@@ -1170,15 +1143,15 @@ TEST_F(eof_validation, EOF1_unreferenced_subcontainer_invalid)
 
 TEST_F(eof_validation, EOF1_subcontainer_containing_unreachable_code_sections)
 {
-    const auto embedded_1 = eof_bytecode(OP_INVALID).code(OP_INVALID, 0, 0x80, 0);
+    const auto embedded_1 = eof_bytecode(OP_INVALID).code(OP_INVALID, 0, 0x80);
     add_test_case(eof_bytecode(eofcreate() + OP_STOP, 4).container(embedded_1),
         EOFValidationError::unreachable_code_sections);
 
     const auto embedded_2 = eof_bytecode(jumpf(1))
-                                .code(jumpf(2), 0, 0x80, 0)
-                                .code(OP_INVALID, 0, 0x80, 0)
-                                .code(jumpf(4), 0, 0x80, 0)
-                                .code(jumpf(3), 0, 0x80, 0);
+                                .code(jumpf(2), 0, 0x80)
+                                .code(OP_INVALID, 0, 0x80)
+                                .code(jumpf(4), 0, 0x80)
+                                .code(jumpf(3), 0, 0x80);
     add_test_case(eof_bytecode(eofcreate() + OP_STOP, 4).container(embedded_2),
         EOFValidationError::unreachable_code_sections);
 }
@@ -1196,7 +1169,7 @@ TEST_F(eof_validation, max_nested_containers_eofcreate)
     add_test_case(code, EOFValidationError::success);
 }
 
-TEST_F(eof_validation, max_nested_containers_eofcreate_returncontract)
+TEST_F(eof_validation, max_nested_containers_eofcreate_returncode)
 {
     bytecode code{};
     bytecode nextcode = eof_bytecode(OP_INVALID);
@@ -1205,7 +1178,7 @@ TEST_F(eof_validation, max_nested_containers_eofcreate_returncontract)
         code = nextcode;
 
         const bytecode initcode =
-            eof_bytecode(push0() + push0() + OP_RETURNCONTRACT + Opcode{0}, 2).container(nextcode);
+            eof_bytecode(push0() + push0() + OP_RETURNCODE + Opcode{0}, 2).container(nextcode);
         if (initcode.size() >= std::numeric_limits<uint16_t>::max())
             break;
         nextcode = eof_bytecode(4 * push0() + OP_EOFCREATE + Opcode{0} + OP_INVALID, 4)
@@ -1219,13 +1192,14 @@ TEST_F(eof_validation, max_nested_containers_eofcreate_returncontract)
 // Rows are instructions referencing subcontainers or rules for top-level container.
 // Columns are instructions inside referenced subcontainer.
 //
-// |                              | STOP   | RETURN | REVERT | RETURNCONTRACT |
+// |                              | STOP   | RETURN | REVERT | RETURNCODE |
 // | ---------------------------- | ------ | ------ | ------ | -------------- |
 // | top-level initcode           | -      | -      | +      | +              |
 // | EOFCREATE                    | -      | -      | +      | +              |
+// | TXCREATE                     | -      | -      | +      | +              |
 // | top-level runtime            | +      | +      | +      | -              |
-// | RETURNCONTRACT               | +      | +      | +      | -              |
-// | EOFCREATE and RETURNCONTRACT | -      | -      | +      | -              |
+// | RETURNCODE               | +      | +      | +      | -              |
+// | EOFCREATE and RETURNCODE | -      | -      | +      | -              |
 
 TEST_F(eof_validation, initcode_container_stop)
 {
@@ -1268,27 +1242,13 @@ TEST_F(eof_validation, initcode_container_revert)
     add_test_case(factory_container, EOFValidationError::success);
 }
 
-TEST_F(eof_validation, initcode_container_returncontract)
-{
-    const auto initcode = returncontract(0, 0, 0);
-    const auto initcontainer = eof_bytecode(initcode, 2).container(eof_bytecode(OP_INVALID));
-
-    add_test_case(initcontainer, ContainerKind::initcode, EOFValidationError::success);
-
-    const auto factory_code = eofcreate() + OP_STOP;
-    const auto factory_container = eof_bytecode(factory_code, 4).container(initcontainer);
-
-    add_test_case(factory_container, EOFValidationError::success);
-}
-
 TEST_F(eof_validation, runtime_container_stop)
 {
     const auto runtime_container = eof_bytecode(OP_STOP);
 
     add_test_case(runtime_container, ContainerKind::runtime, EOFValidationError::success);
 
-    const auto initcontainer =
-        eof_bytecode(returncontract(0, 0, 0), 2).container(runtime_container);
+    const auto initcontainer = eof_bytecode(returncode(0, 0, 0), 2).container(runtime_container);
 
     add_test_case(initcontainer, ContainerKind::initcode, EOFValidationError::success);
 
@@ -1304,8 +1264,7 @@ TEST_F(eof_validation, runtime_container_return)
 
     add_test_case(runtime_container, ContainerKind::runtime, EOFValidationError::success);
 
-    const auto initcontainer =
-        eof_bytecode(returncontract(0, 0, 0), 2).container(runtime_container);
+    const auto initcontainer = eof_bytecode(returncode(0, 0, 0), 2).container(runtime_container);
 
     add_test_case(initcontainer, ContainerKind::initcode, EOFValidationError::success);
 
@@ -1321,8 +1280,7 @@ TEST_F(eof_validation, runtime_container_revert)
 
     add_test_case(runtime_container, ContainerKind::runtime, EOFValidationError::success);
 
-    const auto initcontainer =
-        eof_bytecode(returncontract(0, 0, 0), 2).container(runtime_container);
+    const auto initcontainer = eof_bytecode(returncode(0, 0, 0), 2).container(runtime_container);
 
     add_test_case(initcontainer, ContainerKind::initcode, EOFValidationError::success);
 
@@ -1332,16 +1290,15 @@ TEST_F(eof_validation, runtime_container_revert)
     add_test_case(factory_container, EOFValidationError::success);
 }
 
-TEST_F(eof_validation, runtime_container_returncontract)
+TEST_F(eof_validation, runtime_container_returncode)
 {
     const auto runtime_container =
-        eof_bytecode(returncontract(0, 0, 0), 2).container(eof_bytecode(OP_INVALID));
+        eof_bytecode(returncode(0, 0, 0), 2).container(eof_bytecode(OP_INVALID));
 
     add_test_case(
         runtime_container, ContainerKind::runtime, EOFValidationError::incompatible_container_kind);
 
-    const auto initcontainer =
-        eof_bytecode(returncontract(0, 0, 0), 2).container(runtime_container);
+    const auto initcontainer = eof_bytecode(returncode(0, 0, 0), 2).container(runtime_container);
 
     add_test_case(
         initcontainer, ContainerKind::initcode, EOFValidationError::incompatible_container_kind);
@@ -1352,10 +1309,10 @@ TEST_F(eof_validation, runtime_container_returncontract)
     add_test_case(factory_container, EOFValidationError::incompatible_container_kind);
 }
 
-TEST_F(eof_validation, eofcreate_stop_and_returncontract)
+TEST_F(eof_validation, eofcreate_stop_and_returncode)
 {
     const auto runtime_container = eof_bytecode(OP_INVALID);
-    const auto initcode = rjumpi(1, 0) + OP_STOP + returncontract(0, 0, 0);
+    const auto initcode = rjumpi(1, 0) + OP_STOP + returncode(0, 0, 0);
     const auto initcontainer = eof_bytecode(initcode, 2).container(runtime_container);
     const auto factory_code = eofcreate() + OP_STOP;
     const auto factory_container = eof_bytecode(factory_code, 4).container(initcontainer);
@@ -1363,10 +1320,10 @@ TEST_F(eof_validation, eofcreate_stop_and_returncontract)
     add_test_case(factory_container, EOFValidationError::incompatible_container_kind);
 }
 
-TEST_F(eof_validation, eofcreate_return_and_returncontract)
+TEST_F(eof_validation, eofcreate_return_and_returncode)
 {
     const auto runtime_container = eof_bytecode(OP_INVALID);
-    const auto initcode = rjumpi(5, 0) + ret(0, 0) + returncontract(0, 0, 0);
+    const auto initcode = rjumpi(5, 0) + ret(0, 0) + returncode(0, 0, 0);
     const auto initcontainer = eof_bytecode(initcode, 2).container(runtime_container);
     const auto factory_code = eofcreate() + OP_STOP;
     const auto factory_container = eof_bytecode(factory_code, 4).container(initcontainer);
@@ -1374,16 +1331,16 @@ TEST_F(eof_validation, eofcreate_return_and_returncontract)
     add_test_case(factory_container, EOFValidationError::incompatible_container_kind);
 }
 
-TEST_F(eof_validation, eofcreate_and_returncontract_targeting_same_container)
+TEST_F(eof_validation, eofcreate_and_returncode_targeting_same_container)
 {
     const auto runtime_container = eof_bytecode(OP_INVALID);
-    const auto initcode = eofcreate() + returncontract(0, 0, 0);
+    const auto initcode = eofcreate() + returncode(0, 0, 0);
     const auto initcontainer = eof_bytecode(initcode, 4).container(runtime_container);
 
     add_test_case(
         initcontainer, ContainerKind::initcode, EOFValidationError::ambiguous_container_kind);
 
-    const auto initcode2 = eofcreate() + eofcreate().container(1) + returncontract(1, 0, 0);
+    const auto initcode2 = eofcreate() + eofcreate().container(1) + returncode(1, 0, 0);
     const auto initcontainer2 =
         eof_bytecode(initcode, 4).container(runtime_container).container(runtime_container);
 

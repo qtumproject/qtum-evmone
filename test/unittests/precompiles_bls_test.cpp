@@ -10,6 +10,33 @@
 
 using evmone::test::operator""_hex;
 
+namespace
+{
+/// G1 group point at infinity.
+const auto G1_inf = evmc::bytes(128, 0);
+/// G1 subgroup generator.
+const auto G1_1 =
+    "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1"_hex;
+/// G1 subgroup example point (maybe [2]G1_1?).
+const auto G1_2 =
+    "00000000000000000000000000000000112b98340eee2777cc3c14163dea3ec97977ac3dc5c70da32e6e87578f44912e902ccef9efe28d4a78b8999dfbca942600000000000000000000000000000000186b28d92356c4dfec4b5201ad099dbdede3781f8998ddf929b4cd7756192185ca7b8f4ef7088f813270ac3d48868a21"_hex;
+/// G1 subgroup example point (maybe [3]G1_1?).
+const auto G1_3 =
+    "000000000000000000000000000000000a40300ce2dec9888b60690e9a41d3004fda4886854573974fab73b046d3147ba5b7a5bde85279ffede1b45b3918d82d0000000000000000000000000000000006d3d887e9f53b9ec4eb6cedf5607226754b07c01ace7834f57f3e7315faefb739e59018e22c492006190fba4a870025"_hex;
+
+/// G2 group point at infinity.
+const auto G2_inf = evmc::bytes(256, 0);
+/// G2 subgroup generator.
+const auto G2_1 =
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be"_hex;
+/// Negation of G2 subgroup generator.
+const auto G2_m1 =
+    "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000d1b3cc2c7027888be51d9ef691d77bcb679afda66c73f17f9ee3837a55024f78c71363275a75d75d86bab79f74782aa0000000000000000000000000000000013fa4d4a0ad8b1ce186ed5061789213d993923066dddaf1040bc3ff59f825c78df74f2d75467e25e0f55f8a00fa030ed"_hex;
+
+const auto RESULT_ONE = "0000000000000000000000000000000000000000000000000000000000000001"_hex;
+const auto RESULT_ZERO = "0000000000000000000000000000000000000000000000000000000000000000"_hex;
+}  // namespace
+
 TEST(bls, g1_add)
 {
     const auto x0 =
@@ -200,6 +227,34 @@ TEST(bls, g1_msm_inf_2)
     EXPECT_EQ(evmc::bytes_view(ry, sizeof ry), expected_y);
 }
 
+TEST(bls, g1_msm_inf_3)
+{
+    using namespace evmc::literals;
+
+    const auto P0 =
+        "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f17"
+        "1bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e"
+        "30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e1"_hex;
+    const auto P_INF = evmc::bytes(P0.size(), 0);
+    const auto ONE = "0000000000000000000000000000000000000000000000000000000000000001"_hex;
+
+
+    auto input = P0 + ONE + P_INF + ONE + P0 + ONE;
+
+    uint8_t rx[64];
+    uint8_t ry[64];
+
+    EXPECT_TRUE(evmone::crypto::bls::g1_msm(rx, ry, input.data(), input.size()));
+
+    const auto expected_x =
+        "000000000000000000000000000000000572cbea904d67468808c8eb50a9450c9721db309128012543902d0ac358a62ae28f75bb8f1c7c42c39a8c5529bf0f4e"_hex;
+    const auto expected_y =
+        "00000000000000000000000000000000166a9d8cabc673a322fda673779d8e3822ba3ecb8670e461f73bb9021d5fd76a4c56d9d4cd16bd1bba86881979749d28"_hex;
+
+    EXPECT_EQ(evmc::bytes_view(rx, sizeof rx), expected_x);
+    EXPECT_EQ(evmc::bytes_view(ry, sizeof ry), expected_y);
+}
+
 TEST(bls, g2_msm)
 {
     using namespace evmc::literals;
@@ -257,6 +312,37 @@ TEST(bls, g2_msm_inf_2)
     EXPECT_EQ(evmc::bytes_view(ry, sizeof ry), expected_y);
 }
 
+TEST(bls, g2_msm_inf_3)
+{
+    using namespace evmc::literals;
+    const auto P0 =
+        "00000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647a"
+        "e3d1770bac0326a805bbefd48056c8c121bdb8"
+        "0000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc"
+        "7f5049334cf11213945d57e5ac7d055d042b7e"
+        "000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a6951"
+        "60d12c923ac9cc3baca289e193548608b82801"
+        "000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab57"
+        "2e99ab3f370d275cec1da1aaa9075ff05f79be"_hex;
+    const auto ONE = "0000000000000000000000000000000000000000000000000000000000000001"_hex;
+    const auto P_INF = evmc::bytes(P0.size(), 0);
+
+    const auto input = P0 + ONE + P_INF + ONE + P0 + ONE;
+
+    uint8_t rx[128];
+    uint8_t ry[128];
+
+    EXPECT_TRUE(evmone::crypto::bls::g2_msm(rx, ry, input.data(), input.size()));
+
+    const auto expected_x =
+        "000000000000000000000000000000001638533957d540a9d2370f17cc7ed5863bc0b995b8825e0ee1ea1e1e4d00dbae81f14b0bf3611b78c952aacab827a053000000000000000000000000000000000a4edef9c1ed7f729f520e47730a124fd70662a904ba1074728114d1031e1572c6c886f6b57ec72a6178288c47c33577"_hex;
+    const auto expected_y =
+        "000000000000000000000000000000000468fb440d82b0630aeb8dca2b5256789a66da69bf91009cbfe6bd221e47aa8ae88dece9764bf3bd999d95d71e4c9899000000000000000000000000000000000f6d4552fa65dd2638b361543f887136a43253d9c66c411697003f7a13c308f5422e1aa0a59c8967acdefd8b6e36ccf3"_hex;
+
+    EXPECT_EQ(evmc::bytes_view(rx, sizeof rx), expected_x);
+    EXPECT_EQ(evmc::bytes_view(ry, sizeof ry), expected_y);
+}
+
 TEST(bls, map_fp_to_g1)
 {
     using namespace evmc::literals;
@@ -295,16 +381,81 @@ TEST(bls, map_fp2_to_g2)
     EXPECT_EQ(evmc::bytes_view(ry, sizeof ry), expected_y);
 }
 
-TEST(bls, paring_check)
+
+TEST(bls, pairing_input_test)
 {
-    using namespace evmc::literals;
-    auto input =
-        "0000000000000000000000000000000017f1d3a73197d7942695638c4fa9ac0fc3688c4f9774b905a14e3a3f171bac586c55e83ff97a1aeffb3af00adb22c6bb0000000000000000000000000000000008b3f481e3aaa0f1a09e30ed741d8ae4fcf5e095d5d00af600db18cb2c04b3edd03cc744a2888ae40caa232946c5e7e100000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be00000000000000000000000000000000112b98340eee2777cc3c14163dea3ec97977ac3dc5c70da32e6e87578f44912e902ccef9efe28d4a78b8999dfbca942600000000000000000000000000000000186b28d92356c4dfec4b5201ad099dbdede3781f8998ddf929b4cd7756192185ca7b8f4ef7088f813270ac3d48868a2100000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000ce5d527727d6e118cc9cdc6da2e351aadfd9baa8cbdd3a76d429a695160d12c923ac9cc3baca289e193548608b82801000000000000000000000000000000000606c4a02ea734cc32acd2b02bc28b99cb3e287e85a763af267492ab572e99ab3f370d275cec1da1aaa9075ff05f79be000000000000000000000000000000000a40300ce2dec9888b60690e9a41d3004fda4886854573974fab73b046d3147ba5b7a5bde85279ffede1b45b3918d82d0000000000000000000000000000000006d3d887e9f53b9ec4eb6cedf5607226754b07c01ace7834f57f3e7315faefb739e59018e22c492006190fba4a87002500000000000000000000000000000000024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb80000000000000000000000000000000013e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e000000000000000000000000000000000d1b3cc2c7027888be51d9ef691d77bcb679afda66c73f17f9ee3837a55024f78c71363275a75d75d86bab79f74782aa0000000000000000000000000000000013fa4d4a0ad8b1ce186ed5061789213d993923066dddaf1040bc3ff59f825c78df74f2d75467e25e0f55f8a00fa030ed"_hex;
+    // G1_1 + G1_2 == G1_3
+    {
+        const auto input = G1_1 + G1_2;
+
+        uint8_t r[128];
+        EXPECT_TRUE(evmone::crypto::bls::g1_add(
+            r, &r[64], input.data(), &input[64], &input[128], &input[192]));
+
+        EXPECT_EQ(evmc::bytes_view(r, 64), evmc::bytes_view(G1_3.data(), 64));
+        EXPECT_EQ(evmc::bytes_view(&r[64], 64), evmc::bytes_view(&G1_3[64], 64));
+    }
+
+    // G2_1 + G2_m1 == Inf => G2_1 = -G2_m1
+    {
+        const auto input = G2_1 + G2_m1;
+
+        uint8_t r[256];
+        EXPECT_TRUE(evmone::crypto::bls::g2_add(
+            r, &r[128], input.data(), &input[128], &input[256], &input[384]));
+
+        EXPECT_EQ(evmc::bytes_view(r, 128), evmc::bytes_view(G2_inf.data(), 128));
+        EXPECT_EQ(evmc::bytes_view(&r[128], 128), evmc::bytes_view(&G2_inf[128], 128));
+    }
+}
+
+TEST(bls, paring_check_three_pairs_correct)
+{
+    // G1_1 + G1_2 == G1_3 and G2_1 = -G2_m1 => e(G1_1, G2_1) * e(G1_2, G2_1) * e(G1_3, G2_m1)
+    // == e(G1_1, -G2_m1) * e(G1_2, -G2_m1) * e(G1_1 + G1_2, G2_m1) ==
+    // e(G1_1, G2_m1)^-1 * e(G1_2, G2_m1)^-1 * e(G1_1, G2_m1) * e(G1_2, G2_m1) == 1
+    const auto input = (G1_1 + G2_1) + (G1_2 + G2_1) + (G1_3 + G2_m1);
     uint8_t r[32];
-
     EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, std::size(r)), RESULT_ONE);
+}
 
-    const auto expected = "0000000000000000000000000000000000000000000000000000000000000001"_hex;
+TEST(bls, paring_check_two_pairs_incorrect)
+{
+    const auto input = (G1_1 + G2_1) + (G1_2 + G2_m1);
+    uint8_t r[32];
+    EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, std::size(r)), RESULT_ZERO);
+}
 
-    EXPECT_EQ(evmc::bytes_view(r, sizeof r), expected);
+TEST(bls, paring_check_one_pair_g1_inf)
+{
+    const auto input = G1_inf + G2_1;
+    uint8_t r[32];
+    EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, sizeof r), RESULT_ONE);
+}
+
+TEST(bls, paring_check_one_pair_g2_inf)
+{
+    const auto input = G1_1 + G2_inf;
+    uint8_t r[32];
+    EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, sizeof r), RESULT_ONE);
+}
+
+TEST(bls, paring_check_two_pairs_g1_inf)
+{
+    const auto input = (G1_1 + G2_1) + (G1_inf + G2_1);
+    uint8_t r[32];
+    EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, sizeof r), RESULT_ZERO);
+}
+
+TEST(bls, paring_check_two_pairs_g2_inf)
+{
+    const auto input = (G1_1 + G2_inf) + (G1_2 + G2_1);
+    uint8_t r[32];
+    EXPECT_TRUE(evmone::crypto::bls::pairing_check(r, input.data(), input.size()));
+    EXPECT_EQ(evmc::bytes_view(r, sizeof r), RESULT_ZERO);
 }

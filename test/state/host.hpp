@@ -5,8 +5,8 @@
 #pragma once
 
 #include "state.hpp"
+#include "state_view.hpp"
 #include <optional>
-#include <unordered_set>
 
 namespace evmone::state
 {
@@ -23,9 +23,9 @@ using evmc::uint256be;
 /// @return              The address computed with the CREATE scheme.
 [[nodiscard]] address compute_create_address(const address& sender, uint64_t sender_nonce) noexcept;
 
-/// Computes the address of to-be-created contract with the CREATE2 / EOFCREATE scheme.
+/// Computes the address of to-be-created contract with the CREATE2 scheme.
 ///
-/// Computes the new account address for the contract creation context of the create instruction.
+/// Computes the new account address for the contract creation context of the CREATE2 instruction.
 ///
 /// @param sender        The address of the message sender.
 /// @param salt          The salt.
@@ -34,20 +34,41 @@ using evmc::uint256be;
 [[nodiscard]] address compute_create2_address(
     const address& sender, const bytes32& salt, bytes_view init_code) noexcept;
 
+/// Computes the address of to-be-created contract with the EOFCREATE scheme.
+///
+/// Computes the new account address for the contract creation context of the EOFCREATE instruction.
+///
+/// @param sender        The address of the message sender.
+/// @param salt          The salt.
+/// @return              The address computed with the scheme.
+[[nodiscard]] address compute_eofcreate_address(
+    const address& sender, const bytes32& salt) noexcept;
+
 class Host : public evmc::Host
 {
     evmc_revision m_rev;
     evmc::VM& m_vm;
     State& m_state;
     const BlockInfo& m_block;
+    const BlockHashes& m_block_hashes;
     const Transaction& m_tx;
     std::vector<Log> m_logs;
+    std::vector<evmc_tx_initcode> m_tx_initcodes;
 
 public:
     Host(evmc_revision rev, evmc::VM& vm, State& state, const BlockInfo& block,
-        const Transaction& tx) noexcept
-      : m_rev{rev}, m_vm{vm}, m_state{state}, m_block{block}, m_tx{tx}
-    {}
+        const BlockHashes& block_hashes, const Transaction& tx) noexcept
+      : m_rev{rev}, m_vm{vm}, m_state{state}, m_block{block}, m_block_hashes{block_hashes}, m_tx{tx}
+    {
+        if (tx.type == Transaction::Type::initcodes)
+        {
+            for (const auto& initcode : tx.initcodes)
+            {
+                const auto hash = keccak256({initcode.data(), initcode.size()});
+                m_tx_initcodes.push_back({hash, initcode.data(), initcode.size()});
+            }
+        }
+    }
 
     [[nodiscard]] std::vector<Log>&& take_logs() noexcept { return std::move(m_logs); }
 

@@ -4,10 +4,16 @@
 
 #include "../utils/utils.hpp"
 #include <benchmark/benchmark.h>
+#include <intx/intx.hpp>
 #include <state/precompiles.hpp>
 #include <state/precompiles_internal.hpp>
 #include <array>
 #include <memory>
+#include <span>
+
+#ifdef EVMONE_PRECOMPILES_GMP
+#include <state/precompiles_gmp.hpp>
+#endif
 
 #ifdef EVMONE_PRECOMPILES_SILKPRE
 #include <state/precompiles_silkpre.hpp>
@@ -28,11 +34,13 @@ constexpr auto analyze<PrecompileId::identity> = identity_analyze;
 template <>
 constexpr auto analyze<PrecompileId::ecrecover> = ecrecover_analyze;
 template <>
+constexpr auto analyze<PrecompileId::expmod> = expmod_analyze;
+template <>
 constexpr auto analyze<PrecompileId::ecadd> = ecadd_analyze;
 template <>
 constexpr auto analyze<PrecompileId::ecmul> = ecmul_analyze;
 template <>
-[[maybe_unused]] constexpr auto analyze<PrecompileId::ecpairing> = ecpairing_analyze;
+constexpr auto analyze<PrecompileId::ecpairing> = ecpairing_analyze;
 template <>
 constexpr auto analyze<PrecompileId::point_evaluation> = point_evaluation_analyze;
 
@@ -63,6 +71,28 @@ const inline std::array inputs<PrecompileId::ecrecover>{
     "c866f7d081b5ed51c07478c05950c6d49b57f9dc7e9517f2a49235dffad87ff9000000000000000000000000000000000000000000000000000000000000001b8ac1b5ea65ca74923e5d55a36649775fd4a6383a43625ebe72e80cffab2e73cc71fe84fa6b92785ccf0cb47703f6978d02199027c893e2e578d4a3b756f8a60b"_hex,
     "c866f7d081b5ed51c07478c05950c6d49b57f9dc7e9517f2a49235dffad87ff9000000000000000000000000000000000000000000000000000000000000001cf584733b44d6a4997ffb9cd2c55ad194fa105f99fb9a02265c4b02a1ab987ea93c83271a5023cda2d536fcb57676a4029c62fab694d6defd997939d0eb738ca8"_hex,
 
+};
+
+template <>
+const inline std::array inputs<PrecompileId::expmod>{
+    // Worst cases:
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex,
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"_hex,
+
+    // Mainnet:
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000203038f57abc91abff7dcbc5b55cd6aa454503850ce62e941f81273ba6008e82a530644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"_hex,
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020239ea33f993130afd678f591cd1685d44779b7717156f2a715220955e10a234830644e72e131a029b85045b68181585d2833e84879b9709143e1f593efffffff30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000203914aeddf3af39bd5e0e231d09a8438cf38c7d0274a5aa61bd9a2bbcd77fd2c7ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc63254fffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"_hex,
+    "00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002027c816cec3d048eaae22d948c42f9d803d765d0827a7b49e01273031566eed92ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc63254fffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200cf7d1e109b5b8f6a682be51e152d3668acc1b4d762ecbf5cdca7a807cc5fe4cffffffff00000001000000000000000000000000fffffffffffffffffffffffdffffffff00000001000000000000000000000000ffffffffffffffffffffffff"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000203a122fd889a09d3a19c587ab486d5a6a2b39836d6d665c6ebad2a68a615e6736ffffffff00000001000000000000000000000000fffffffffffffffffffffffdffffffff00000001000000000000000000000000ffffffffffffffffffffffff"_hex,
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020161455250ee1d7ff76e4eb2f6a16a636a4bc69dd20416f6ea5647b7fb311e9320000000000000000000000000000000000000000000000000000000000ffffff30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200d96428856df2f1b728ce955f28f50befa405a61e8984acbaf678af9be0e0dfd000000000000000000000000000000000000000000000000000000000100000030644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"_hex,
+    "0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000202369f74b39dddb516bb17d20f24ba72c8f0ec09bea7d7f38ad54dbc3cfd4b4760c19139cb84c680a6e14116da060561765e05aa45a1c72a34f082305b61f3f5230644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47"_hex,
+    "00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002019b01e88eb4a62d7df2da453deb859f6113004675370b6f54ff9f20499cfc4cf0c19139cb84c680a6e14116da060561765e05aa45a1c72a34f082305b61f3f5230644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47"_hex,
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020c943d0f2b95b88d8a3ad7782221659f05cb697047a9793a65ec7db59439afb0a3fffffffffffffffffffffffffffffffffffffffffffffffffffffffbfffff0cfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"_hex,
+    "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000020307c38188f3b804fc399b7195579269fd60fddbe7e6d8174b3ad38b64b1bb2fa3fffffffffffffffffffffffffffffffffffffffffffffffffffffffbfffff0cfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f"_hex,
 };
 
 template <>
@@ -172,6 +202,73 @@ void precompile(benchmark::State& state)
     state.counters["gas_rate"] = Counter(static_cast<double>(total_gas_used), Counter::kIsRate);
 }
 
+template <ExecuteFn Fn>
+void modexp(benchmark::State& state)
+{
+    const auto base_mod_len = static_cast<size_t>(state.range(0));
+    const auto exp_bits = static_cast<size_t>(state.range(1));
+    const auto exp_len = (exp_bits + 7) / 8;
+    const auto exp_clz = exp_bits % 8 == 0 ? 0 : 8 - exp_bits % 8;
+
+    const auto payload_len = 2 * base_mod_len + exp_len - 1;
+    const auto input_len = 3 * 32 + payload_len;
+    const auto input = std::make_unique_for_overwrite<uint8_t[]>(input_len);
+    intx::be::unsafe::store(&input[0], intx::uint256{base_mod_len});
+    intx::be::unsafe::store(&input[32], intx::uint256{exp_len});
+    intx::be::unsafe::store(&input[64], intx::uint256{base_mod_len});
+    const std::span payload{&input[3 * 32], payload_len};
+    std::fill_n(&payload[0], base_mod_len, 0xff);
+    std::fill_n(&payload[base_mod_len + 1], exp_len - 1, 0xff);
+    payload[base_mod_len] = 0xff >> exp_clz;
+    // Skip the last byte in the mod to make input incomplete and mod even.
+    std::fill_n(&payload[base_mod_len + exp_len], base_mod_len - 1, 0xff);
+
+    const auto output = std::make_unique_for_overwrite<uint8_t[]>(base_mod_len);
+
+    const auto gas_cost = expmod_analyze({input.get(), input_len}, EVMC_PRAGUE).gas_cost;
+    int64_t total_gas_used = 0;
+    for ([[maybe_unused]] auto _ : state)
+    {
+        auto r = Fn(input.get(), input_len, output.get(), base_mod_len);
+        benchmark::DoNotOptimize(r);
+        total_gas_used += gas_cost;
+    }
+
+    using benchmark::Counter;
+    state.counters["gas_used"] = Counter(static_cast<double>(gas_cost));
+    state.counters["gas_rate"] = Counter(static_cast<double>(total_gas_used), Counter::kIsRate);
+}
+#define MODEXP_ARGS                     \
+    ->ArgNames({"mod_len", "exp_bits"}) \
+        ->Args({1 * 8, 604})            \
+        ->Args({2 * 8, 152})            \
+        ->Args({3 * 8, 68})             \
+        ->Args({4 * 8, 39})             \
+        ->Args({5 * 8, 25})             \
+        ->Args({6 * 8, 18})             \
+        ->Args({7 * 8, 13})             \
+        ->Args({8 * 8, 10})             \
+        ->Args({9 * 8, 8})              \
+        ->Args({10 * 8, 7})             \
+        ->Args({11 * 8, 6})             \
+        ->Args({12 * 8, 5})             \
+        ->Args({14 * 8, 4})             \
+        ->Args({17 * 8, 3})             \
+        ->Args({24 * 8, 2})             \
+        ->Args({25 * 8, 1})             \
+        ->Args({32 * 8, 2})             \
+        ->Args({33 * 8, 2})             \
+        ->Args({63 * 8, 2})             \
+        ->Args({64 * 8, 2})             \
+        ->Args({65 * 8, 2})             \
+        ->Args({127 * 8, 2})            \
+        ->Args({128 * 8, 2})
+BENCHMARK(modexp<expmod_execute>) MODEXP_ARGS;
+#ifdef EVMONE_PRECOMPILES_GMP
+BENCHMARK(modexp<expmod_execute_gmp>) MODEXP_ARGS;
+#endif
+#undef MODEXP_ARGS
+
 BENCHMARK_TEMPLATE(precompile, PrecompileId::identity, identity_execute);
 
 namespace bench_ecrecovery
@@ -183,6 +280,20 @@ constexpr auto libsecp256k1 = silkpre_ecrecover_execute;
 BENCHMARK_TEMPLATE(precompile, PrecompileId::ecrecover, libsecp256k1);
 #endif
 }  // namespace bench_ecrecovery
+
+namespace bench_expmod
+{
+constexpr auto evmone = expmod_execute;
+BENCHMARK(precompile<PrecompileId::expmod, evmone>);
+#ifdef EVMONE_PRECOMPILES_GMP
+constexpr auto gmp = expmod_execute_gmp;
+BENCHMARK(precompile<PrecompileId::expmod, gmp>);
+#endif
+#ifdef EVMONE_PRECOMPILES_SILKPRE
+constexpr auto silkpre = silkpre_expmod_execute;
+BENCHMARK(precompile<PrecompileId::expmod, silkpre>);
+#endif
+}  // namespace bench_expmod
 
 namespace bench_ecadd
 {
@@ -206,6 +317,8 @@ BENCHMARK_TEMPLATE(precompile, PrecompileId::ecmul, libff);
 
 namespace bench_ecpairing
 {
+constexpr auto evmmax_cpp = ecpairing_execute;
+BENCHMARK_TEMPLATE(precompile, PrecompileId::ecpairing, evmmax_cpp);
 #ifdef EVMONE_PRECOMPILES_SILKPRE
 constexpr auto libff = silkpre_ecpairing_execute;
 BENCHMARK_TEMPLATE(precompile, PrecompileId::ecpairing, libff);
