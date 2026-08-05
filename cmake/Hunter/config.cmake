@@ -6,9 +6,9 @@ include(hunter_cmake_args)
 
 hunter_config(
     intx
-    VERSION 0.13.0
-    URL https://github.com/chfast/intx/archive/v0.13.0.tar.gz
-    SHA1 3e868e3018fe9f2b2f067442c879e4f312d2d707
+    VERSION 0.15.0
+    URL https://github.com/chfast/intx/archive/v0.15.0.tar.gz
+    SHA1 571b3f4c5a7b09135755720b478bc03f9d7ba7bb
 )
 
 hunter_config(
@@ -38,8 +38,8 @@ option(BENCHMARK_ENABLE_LIBPFM "Enable performance counters provided by libpfm" 
 
 hunter_config(
     benchmark
-    VERSION 1.9.4
+    VERSION 1.9.5
     CMAKE_ARGS BENCHMARK_ENABLE_LIBPFM=${BENCHMARK_ENABLE_LIBPFM}
-    URL https://github.com/google/benchmark/archive/v1.9.4.tar.gz
-    SHA1 46984dfbfc5fbfa42a0b60bfd3a962ef0d7d1c93
+    URL https://github.com/google/benchmark/archive/v1.9.5.tar.gz
+    SHA1 1923d665fc134fca137fea0951403d043b5b7732
 )

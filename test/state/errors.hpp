@@ -9,7 +9,7 @@
 namespace evmone::state
 {
 
-enum ErrorCode : int
+enum ErrorCode : int  // NOLINT(*-use-enum-class)
 {
     SUCCESS = 0,
     INTRINSIC_GAS_TOO_LOW,
@@ -30,11 +30,23 @@ enum ErrorCode : int
     BLOB_GAS_LIMIT_EXCEEDED,
     CREATE_SET_CODE_TX,
     EMPTY_AUTHORIZATION_LIST,
-    INIT_CODE_EMPTY,
-    INIT_CODE_COUNT_LIMIT_EXCEEDED,
-    INIT_CODE_COUNT_ZERO,
     MAX_GAS_LIMIT_EXCEEDED,
     UNKNOWN_ERROR,
+
+    // Block-level validation.
+    INCORRECT_BLOCK_FORMAT,
+    INVALID_GASLIMIT,
+    INVALID_BASEFEE_PER_GAS,
+    INCORRECT_EXCESS_BLOB_GAS,
+    RLP_BLOCK_LIMIT_EXCEEDED,
+    INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT,
+    INVALID_BLOCK_PARENT,
+    INVALID_BLOCK_NUMBER,
+
+    // Block requests collection (EIP-7685).
+    INVALID_DEPOSIT_EVENT_LAYOUT,
+    SYSTEM_CONTRACT_EMPTY,
+    SYSTEM_CONTRACT_CALL_FAILED,
 };
 
 /// Obtains a reference to the static error category object for evmone errors.
@@ -86,16 +98,32 @@ inline const std::error_category& evmone_category() noexcept
                 return "set code transaction must not be a create transaction";
             case EMPTY_AUTHORIZATION_LIST:
                 return "empty authorization list";
-            case INIT_CODE_EMPTY:
-                return "initcode empty";
-            case INIT_CODE_COUNT_LIMIT_EXCEEDED:
-                return "max initcode count exceeded";
-            case INIT_CODE_COUNT_ZERO:
-                return "initcode list empty";
             case MAX_GAS_LIMIT_EXCEEDED:
                 return "max gas limit exceeded";
             case UNKNOWN_ERROR:
                 return "Unknown error";
+            case INCORRECT_BLOCK_FORMAT:
+                return "BlockException.INCORRECT_BLOCK_FORMAT";
+            case INVALID_GASLIMIT:
+                return "BlockException.INVALID_GASLIMIT";
+            case INVALID_BASEFEE_PER_GAS:
+                return "BlockException.INVALID_BASEFEE_PER_GAS";
+            case INCORRECT_EXCESS_BLOB_GAS:
+                return "BlockException.INCORRECT_EXCESS_BLOB_GAS";
+            case RLP_BLOCK_LIMIT_EXCEEDED:
+                return "BlockException.RLP_BLOCK_LIMIT_EXCEEDED";
+            case INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT:
+                return "BlockException.INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT";
+            case INVALID_BLOCK_PARENT:
+                return "BlockException.INVALID_BLOCK_PARENT";
+            case INVALID_BLOCK_NUMBER:
+                return "BlockException.INVALID_BLOCK_NUMBER";
+            case INVALID_DEPOSIT_EVENT_LAYOUT:
+                return "BlockException.INVALID_DEPOSIT_EVENT_LAYOUT";
+            case SYSTEM_CONTRACT_EMPTY:
+                return "BlockException.SYSTEM_CONTRACT_EMPTY";
+            case SYSTEM_CONTRACT_CALL_FAILED:
+                return "BlockException.SYSTEM_CONTRACT_CALL_FAILED";
             default:
                 assert(false);
                 return "Wrong error code";

@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "blob_schedule.hpp"
+#include "blob_params.hpp"
 #include "bloom_filter.hpp"
 #include "state_diff.hpp"
 #include <intx/intx.hpp>
@@ -58,10 +58,6 @@ struct Transaction
         /// The typed set code transaction (with authorization list).
         /// Introduced by EIP-7702 https://eips.ethereum.org/EIPS/eip-7702.
         set_code = 4,
-
-        /// The typed transaction with initcode list.
-        /// Introduced by EIP-7873 https://eips.ethereum.org/EIPS/eip-7873.
-        initcodes = 6,
     };
 
     /// Returns amount of blob gas used by this transaction
@@ -69,7 +65,7 @@ struct Transaction
 
     Type type = Type::legacy;
     bytes data;
-    int64_t gas_limit;
+    int64_t gas_limit = 0;
     intx::uint256 max_gas_price;
     intx::uint256 max_priority_gas_price;
     intx::uint256 max_blob_gas_price;
@@ -84,7 +80,6 @@ struct Transaction
     intx::uint256 s;
     uint8_t v = 0;
     AuthorizationList authorization_list;
-    std::vector<bytes> initcodes;
 };
 
 /// Transaction properties computed during the validation needed for the execution.
@@ -118,8 +113,12 @@ struct TransactionReceipt
     Transaction::Type type = Transaction::Type::legacy;
     evmc_status_code status = EVMC_INTERNAL_ERROR;
 
-    /// Amount of gas used by this transaction.
+    /// Amount of gas used by this transaction (after refund, with the min gas applied).
     int64_t gas_used = 0;
+
+    /// Amount of gas refund applied to gas_used (capped by the min gas cost of EIP-7623).
+    /// Effectively, the difference between "block" and "user" gas.
+    int64_t gas_refund = 0;
 
     /// Amount of gas used by this and previous transactions in the block.
     int64_t cumulative_gas_used = 0;
@@ -131,15 +130,4 @@ struct TransactionReceipt
     std::optional<bytes32> post_state;
 };
 
-/// Defines how to RLP-encode a Transaction.
-[[nodiscard]] bytes rlp_encode(const Transaction& tx);
-
-/// Defines how to RLP-encode a TransactionReceipt.
-[[nodiscard]] bytes rlp_encode(const TransactionReceipt& receipt);
-
-/// Defines how to RLP-encode a Log.
-[[nodiscard]] bytes rlp_encode(const Log& log);
-
-/// Defines how to RLP-encode an Authorization (EIP-7702).
-[[nodiscard]] bytes rlp_encode(const Authorization& authorization);
 }  // namespace evmone::state

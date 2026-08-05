@@ -7,8 +7,80 @@
 #include <intx/intx.hpp>
 #include <test/state/precompiles_internal.hpp>
 #include <test/utils/utils.hpp>
+#ifdef EVMONE_PRECOMPILES_GMP
+#include <test/state/precompiles_gmp.hpp>
+#endif
 
-TEST(expmod, test_vectors)
+namespace
+{
+using evmone::state::ExecutionResult;
+
+/// Builds a big-endian value of given size with MSB, optional LSB, and fill byte.
+evmc::bytes make_val(size_t size, uint8_t msb, uint8_t lsb = 0, uint8_t fill = 0)
+{
+    assert(size >= 2);
+    evmc::bytes v(size, fill);
+    v.front() = msb;
+    v.back() = lsb;
+    return v;
+}
+
+/// Checks that the result is zero everywhere except the last byte which should equal expected.
+void expect_last_byte(const std::span<const uint8_t> result, uint8_t expected)
+{
+    EXPECT_EQ(result.back(), expected);
+    const auto head = result.first(result.size() - 1);
+    EXPECT_TRUE(std::ranges::all_of(head, [](uint8_t b) { return b == 0; }));
+}
+
+
+/// Function pointer type for expmod execute implementations.
+using ExpmodExecuteFn = ExecutionResult (*)(const uint8_t*, size_t, uint8_t*, size_t) noexcept;
+
+struct ExpmodImpl
+{
+    const char* name;
+    ExpmodExecuteFn fn;
+};
+
+/// Parameterized test fixture for expmod implementations.
+class expmod : public testing::TestWithParam<ExpmodImpl>
+{
+protected:
+    /// Builds modexp precompile input, executes via the parameterized implementation, and returns
+    /// the result.
+    static evmc::bytes run(const evmc::bytes& base, const evmc::bytes& exp, const evmc::bytes& mod)
+    {
+        evmc::bytes input(3 * 32, 0);
+        using namespace intx;
+        be::unsafe::store(&input[0], uint256{base.size()});
+        be::unsafe::store(&input[32], uint256{exp.size()});
+        be::unsafe::store(&input[64], uint256{mod.size()});
+        input += base;
+        input += exp;
+        input += mod;
+
+        evmc::bytes result(mod.size(), 0xfe);  // Sentinel fill to detect partial writes.
+        const auto [status, output_size] =
+            GetParam().fn(input.data(), input.size(), result.data(), result.size());
+        EXPECT_EQ(status, EVMC_SUCCESS);
+        EXPECT_EQ(output_size, mod.size());
+        return result;
+    }
+};
+
+const ExpmodImpl EXPMOD_IMPLS[] = {
+    {"evmone", &evmone::state::expmod_execute_evmone},
+#ifdef EVMONE_PRECOMPILES_GMP
+    {"gmp", &evmone::state::expmod_execute_gmp},
+#endif
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    impls, expmod, testing::ValuesIn(EXPMOD_IMPLS), [](const auto& x) { return x.param.name; });
+}  // namespace
+
+TEST_P(expmod, inputs)
 {
     struct TestCase
     {
@@ -25,7 +97,19 @@ TEST(expmod, test_vectors)
         {"", "", "01", "00"},
         {"", "", "02", "01"},
         {"", "", "0200", "0001"},
+        // 0^0 with multi-word mod 0.
+        {"", "", "000000000000000000", "000000000000000000"},
+        // 0^0 with multi-word mod 1.
+        {"", "", "000000000000000001", "000000000000000000"},
+        // 0^0 with multi-word mod > 1.
+        {"", "", "ff0000000000000000", "000000000000000001"},
+        // 0^0 with multi-word mod > 1.
+        {"", "", "ff0000000000000001", "000000000000000001"},
+        {"03", "07", "00", "00"},
+        {"03", "00", "01", "00"},
+        {"03", "07", "01", "00"},
         {"00", "00", "02", "01"},
+        {"03", "07", "02", "01"},
         {"02", "03", "00", "00"},
         {"02", "01", "03", "02"},
         {"02", "03", "06", "02"},
@@ -33,6 +117,12 @@ TEST(expmod, test_vectors)
         {"03", "00", "06", "01"},
         {"03", "01", "14", "03"},
         {"03", "02", "14", "09"},
+        // Even modulus: 3^3 mod 12 = 27 mod 12 = 3.
+        {"03", "03", "0c", "03"},
+        // Even modulus: 2^5 mod 20 = 32 mod 20 = 12.
+        {"02", "05", "14", "0c"},
+        // Even modulus: 5^7 mod 24 = 78125 mod 24 = 5.
+        {"05", "07", "18", "05"},
         {"03", "03", "03a0", "001b"},
         {"09", "05", "10", "09"},
         {"09", "05", "11", "08"},
@@ -41,22 +131,39 @@ TEST(expmod, test_vectors)
         {"09", "05", "18", "09"},
         {"03", "80", "ff", "ab"},
         {"03", "1c93", "61", "5f"},
+        // base=0 with exp>0: 0^n = 0 for all paths (odd, even, pow2).
+        {"00", "01", "07", "00"},
+        {"00", "03", "06", "00"},
+        {"00", "01", "08", "00"},
+        // Different base/mod byte sizes.
+        {"0100", "01", "07", "04"},  // large base, small odd mod
+        {"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "01", "0006", "0003"},
+        {"02", "05", "060000000000000000", "000000000000000020"},
+        // Even modulus with large base: odd part (3) has fewer significant words than the
+        // result buffer. Regression test for zeroing trailing words in modexp_odd().
+        {"00000000000000000000000000000002", "03", "00000000000000000000000000000006",
+            "00000000000000000000000000000002"},
+        {"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "02",
+            "fffffffffffffffd", "0000000000001900"},
+        {"02", "03", "0100000000000000000000000000000001", "0000000000000000000000000000000008"},
+        // Power-of-two modulus bigger than single word.
+        {"cc", "11", "00000001000000000000000000000000", "00000000fe8477d6c9cef3cc00000000"},
+        // Odd modulus of various word sizes (1, 3, 5 words).
+        {"0000000000000002", "01", "8000000000000001", "0000000000000002"},
+        {"000000000000000000000000000000000000000000000002", "01",
+            "800000000000000000000000000000000000000000000001",
+            "000000000000000000000000000000000000000000000002"},
+        {"00000000000000000000000000000000000000000000000000000000000000000000000000000002", "01",
+            "80000000000000000000000000000000000000000000000000000000000000000000000000000001",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000002"},
+        // Full-width base triggers normalization headroom path in rem().
+        {"80000000000000000000000000000000", "01", "80000000000000000000000000000001",
+            "80000000000000000000000000000000"},
         {
             "03",
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2e",
             "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
             "0000000000000000000000000000000000000000000000000000000000000001",
-        },
-        {
-            "02",
-            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "000000000000000000000000000000000000000000000000000000000000000000000000000000000003",
-            "0006",
-            "0002",
         },
         {
             "20000000000000000000000000000000000000000000000000000000000000000000000000000010200000"
@@ -100,31 +207,137 @@ TEST(expmod, test_vectors)
             "e59e10c2a65950af0c4b047e185de46ee3d11f9b6b202d408bba3fa657dbb2cd49d4a1d329966c23e59e10"
             "c2a65950af0c4b047e185de46ee3d11f9b6b20",
         },
+        // Even modulus: (2^320 - 1) * 2^64.
+        {
+            "03",
+            "0300",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "0000000000000000",
+            "52fb579ce1cc2f9ca0d054fc45bedb199389314a067aaff8f058864885f642c5acbbf6a3673585bb"
+            "442488538f42dc01",
+        },
+        // Even modulus: (2^768 - 1) * 2^320.
+        {
+            "03",
+            "0300",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "ffffffffffffffffffffffffffffffff000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000",
+            "4059444789547ff685087bca8a144d32556b2251613171aa4cf05d8a005015d9b8408ba5f7c89595"
+            "e76d925173cf80e552a856b1ce217c1f33940f8241e6adcf76b672c4935a40f4bb36410ee24654c1"
+            "14cd718bea878742c703dc5abddbdbfa17d12328a2a6bb9d6e80dc0bc224eef03128625977a1e2c1"
+            "d189336e303567d7442488538f42dc01",
+        },
+        // Large base (48 bytes) with small even modulus (16 bytes).
+        {
+            "010101010101010101010101010101010101010101010101"
+            "010101010101010101010101010101010101010101010101",
+            "01",
+            "02020202020202020202020202020202",
+            "01010101010101010101010101010101",
+        },
+        // base wider than mod (9 bytes vs 1 byte), odd mod.
+        {"000000000000000009", "01", "07", "02"},
+        // base >> mod (32 bytes vs 1 byte), odd mod.
+        {"0000000000000000000000000000000000000000000000000000000000000002", "01", "07", "02"},
+        // mod >> base (32 bytes vs 1 byte), odd mod.
+        {"02", "01", "8000000000000000000000000000000000000000000000000000000000000007",
+            "0000000000000000000000000000000000000000000000000000000000000002"},
+        // mod >> base (32 bytes vs 1 byte), even mod.
+        {"02", "01", "8000000000000000000000000000000000000000000000000000000000000006",
+            "0000000000000000000000000000000000000000000000000000000000000002"},
+        // base >> mod (32 bytes vs 1 byte), even mod.
+        {"0000000000000000000000000000000000000000000000000000000000000002", "01", "06", "02"},
+        // Test cases for AMM.
+        {"03", "02", "09", "00"},
+        {"03", "02", "0000000000000000000000000000000000000000000000000000000000000009",
+            "0000000000000000000000000000000000000000000000000000000000000000"},
+        {"03", "02",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "000000000000000000000000000000000000000009",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "000000000000000000000000000000000000000000"},
+        {"02", "02",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            "000000000000000000000000000000000000000000000000000000000000000000000000000000000004"},
+        {"fffffffffffffffffffffffffffffffe", "02", "ffffffffffffffffffffffffffffffff",
+            "00000000000000000000000000000001"},
+        // Small base with multi-word power-of-two modulus (pow2 path: base shorter than mod).
+        {"03", "07", "00000000000000000100000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000088b"},
+        // Small base with multi-word even modulus (even path: trimmed mod shorter than w).
+        // 3^3 mod 12, where 12 is encoded as 16 bytes.
+        {"03", "03", "0000000000000000000000000000000c", "00000000000000000000000000000003"},
+        // Even modulus with leading zeros: 3^3 mod 12, where 12 is encoded as 32 bytes.
+        // CRT product size (odd_size + pow2_size = 2) < declared_mod_size (4 words).
+        {"03", "03", "000000000000000000000000000000000000000000000000000000000000000c",
+            "0000000000000000000000000000000000000000000000000000000000000003"},
+        // Small base with even modulus having large pow2 factor
+        // (even/pow2 path: base shorter than num_pow2_words).
+        // 3^5 mod (5 * 2^128) = 243.
+        {"03", "05", "000000000000000500000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000f3"},
+        // Even modulus with 1-word odd part and multi-word pow2 factor.
+        // Exercises carry/borrow propagation in add/sub with shorter operand.
+        // 2^64 mod (3 * 2^128).
+        {"02", "40", "0300000000000000000000000000000000", "0000000000000000010000000000000000"},
+        // 2^128 mod (3 * 2^128): carry propagates through all high words in add.
+        {"02", "80", "0300000000000000000000000000000000", "0100000000000000000000000000000000"},
+        // 2^129 mod (7 * 2^128): carry propagates and is absorbed in nonzero word.
+        {"02", "0081", "0700000000000000000000000000000000", "0200000000000000000000000000000000"},
     };
 
     for (const auto& [base_hex, exp_hex, mod_hex, expected_result_hex] : test_cases)
     {
-        const auto base = *evmc::from_hex(base_hex);
-        const auto exp = *evmc::from_hex(exp_hex);
-        const auto mod = *evmc::from_hex(mod_hex);
-        const auto expected_result = *evmc::from_hex(expected_result_hex);
-
-        evmc::bytes input(3 * 32, 0);
-        using namespace intx;
-        be::unsafe::store(&input[0], uint256{base.size()});
-        be::unsafe::store(&input[32], uint256{exp.size()});
-        be::unsafe::store(&input[64], uint256{mod.size()});
-        input += base;
-        input += exp;
-        input += mod;
-
-        evmc::bytes result(mod.size(), 0xfe);
-        const auto [status, output_size] =
-            evmone::state::expmod_execute(input.data(), input.size(), result.data(), result.size());
-        EXPECT_EQ(status, EVMC_SUCCESS);
-        EXPECT_EQ(output_size, expected_result.size());
+        const auto result =
+            run(*evmc::from_hex(base_hex), *evmc::from_hex(exp_hex), *evmc::from_hex(mod_hex));
         EXPECT_EQ(hex(result), expected_result_hex);
     }
+}
+
+TEST_P(expmod, large_inputs)
+{
+    // Tests with base/mod of 1024 and 1025 bytes, covering all modulus types.
+
+    // 1024-byte inputs (EIP-7823 limit).
+    expect_last_byte(run({0x02}, {0x01}, make_val(1024, 0x80, 1)), 2);  // odd
+    expect_last_byte(run({0x02}, {0x01}, make_val(1024, 0x01)), 2);     // power-of-two
+    expect_last_byte(run({0x02}, {0x01}, make_val(1024, 0x80, 2)), 2);  // even (1-bit tz)
+
+    // 1025-byte inputs (exceeds EIP-7823, exercises heap fallback for native impl).
+    expect_last_byte(run({0x02}, {0x01}, make_val(1025, 0x80, 1)), 2);  // odd
+    expect_last_byte(run({0x02}, {0x01}, make_val(1025, 0x01)), 2);     // power-of-two
+    expect_last_byte(run({0x02}, {0x01}, make_val(1025, 0x80, 2)), 2);  // even (1-bit tz)
+
+    // Large base AND even modulus (both 1025 bytes, CRT path with large base).
+    // base < mod, so base^1 mod M = base.
+    EXPECT_EQ(run(make_val(1025, 0x40, 0x03), {0x01}, make_val(1025, 0x80, 2)),
+        make_val(1025, 0x40, 0x03));
+
+    // Even modulus with tiny odd part and large pow2 factor.
+    // mod = 3 * 256^1023 (1024 bytes). inv_scratch dominates op_scratch.
+    // 2^1 mod M = 2.
+    expect_last_byte(run({0x02}, {0x01}, make_val(1024, 0x03)), 2);
+
+    // Dense values: (2^N - 2)^2 mod (2^N - 1) = 1. Tests AMM reduction at various sizes.
+    for (const auto n : {size_t{64}, size_t{128}, size_t{256}, size_t{512}, size_t{1024}})
+        expect_last_byte(
+            run(make_val(n, 0xff, 0xfe, 0xff), {0x02}, make_val(n, 0xff, 0xff, 0xff)), 1);
+
+    // AMM test: 3^2 mod 9 = 0, at various sizes.
+    for (const auto n : {size_t{128}, size_t{256}, size_t{1024}})
+        expect_last_byte(run({0x03}, {0x02}, make_val(n, 0x00, 0x09)), 0);
+
+    // Full-width base triggers normalization headroom path in rem(). 136-byte values.
+    expect_last_byte(run(make_val(136, 0x00, 0x02), {0x01}, make_val(136, 0x80, 0x01)), 2);
+
+    // Large exponent (256 bytes): 2^(0x00...03) mod 6 = 8 mod 6 = 2.
+    expect_last_byte(run({0x02}, make_val(256, 0x00, 0x03), {0x06}), 2);
 }
 
 TEST(expmod, analysis_oog)
@@ -168,6 +381,7 @@ TEST(expmod, incomplete_inputs)
 
     // Tests for expmod with raw and incomplete inputs (requires padding input with zero bytes).
     static constexpr auto GAS_LIMIT = 100'000'000;
+    const std::string huge_output(0x20000 * 2, '0');
     const std::vector<TestCase> inputs{
         // clang-format off
         {"", ""},
@@ -185,6 +399,7 @@ TEST(expmod, incomplete_inputs)
         {"0000000000000000000000000000000000000000000000000000000000000000 0000000000000000000000000000000000000000000000000000000000000001 0000000000000000000000000000000000000000000000000000000000000000", ""},
         {"0000000000000000000000000000000000000000000000000000000000000000 0000000000000000000000000000000000000000000000000000000000000002 0000000000000000000000000000000000000000000000000000000000000000 80", ""},
         {"0000000000000000000000000000000000000000000000000000000000000000 0000000000000000000000000000000000000000000000000000000100000000 0000000000000000000000000000000000000000000000000000000000000000 80", ""},
+        {"0000000000000000000000000000000000000000000000000000000000020000 0000000000000000000000000000000000000000000000000000000000000020 0000000000000000000000000000000000000000000000000000000000020000 80", huge_output},
         // clang-format on
     };
 
@@ -192,12 +407,51 @@ TEST(expmod, incomplete_inputs)
     {
         const auto input = evmc::from_spaced_hex(input_hex).value();
         const auto [gas_cost, max_output_size] = evmone::state::expmod_analyze(input, EVMC_PRAGUE);
-        EXPECT_LT(gas_cost, GAS_LIMIT);
+        ASSERT_LT(gas_cost, GAS_LIMIT);
         auto output = std::make_unique_for_overwrite<uint8_t[]>(max_output_size);
         const auto [status, output_size] = evmone::state::expmod_execute(
             input.data(), input.size(), output.get(), max_output_size);
         EXPECT_EQ(status, EVMC_SUCCESS);
         const auto result_hex = evmc::hex({output.get(), output_size});
         EXPECT_EQ(result_hex, expected_result_hex);
+    }
+}
+
+TEST(expmod, huge_inputs_analysis)
+{
+    // Tests expmod_analyze for inputs with huge moduli that exceed the native modexp
+    // implementation's size limit. These are near the gas limit boundary:
+    // the max mod_len for a given exp magnitude that still fits within GAS_LIMIT.
+    //
+    // Must be pre-Osaka: EIP-7823 (Osaka) caps mod_len at 1024 bytes, so inputs with
+    // larger moduli would return GasCostMax instead of the expected gas below GAS_LIMIT.
+    static constexpr auto REV = EVMC_PRAGUE;
+    static constexpr auto GAS_LIMIT = 100'000'000;
+    struct TestCase
+    {
+        std::string_view input_hex;
+        size_t expected_output_size;
+    };
+    const std::vector<TestCase> inputs{
+        // mod_len=0xcc80 (52352), adj_exp=7 (exp=0xff): gas=99922517
+        {"0000000000000000000000000000000000000000000000000000000000000001"
+         "0000000000000000000000000000000000000000000000000000000000000001"
+         "000000000000000000000000000000000000000000000000000000000000cc80"
+         "01ffff",
+            0xcc80},
+        // mod_len=0x21d40 (138560), adj_exp=1 (exp=0x01): gas=99994133
+        {"0000000000000000000000000000000000000000000000000000000000000001"
+         "0000000000000000000000000000000000000000000000000000000000000001"
+         "0000000000000000000000000000000000000000000000000000000000021d40"
+         "ff01ff",
+            0x21d40},
+    };
+
+    for (const auto& [input_hex, expected_output_size] : inputs)
+    {
+        const auto input = evmc::from_spaced_hex(input_hex).value();
+        const auto [gas_cost, max_output_size] = evmone::state::expmod_analyze(input, REV);
+        EXPECT_LT(gas_cost, GAS_LIMIT);
+        EXPECT_EQ(max_output_size, expected_output_size);
     }
 }

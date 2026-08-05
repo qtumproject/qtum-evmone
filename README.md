@@ -96,18 +96,6 @@ Ethereum Precompiled Contracts (_precompiles_ for short) are supported by evmone
 1. The `ecrecover` is implemented directly by evmone and has degraded performance.
 2. For `expmod` stubs are enabled by default — they will correctly respond to known inputs. The CMake option `EVMONE_PRECOMPILES_GMP=1` enables full implementation but this requires [GMP] (e.g. libgmp-dev) library at build and execution time.
 
-### Tools
-
-#### evm-test
-
-The **evm-test** executes a collection of unit tests on 
-any EVMC-compatible Ethereum Virtual Machine implementation.
-The collection of tests comes from the evmone project.
-
-```bash
-evm-test ./evmone.so
-```
-
 ### Docker
 
 Docker images with evmone are available on Docker Hub:
@@ -119,14 +107,6 @@ with it.
 
 ```bash
 docker run --entrypoint evmone-bench ethereum/evmone /src/test/benchmarks
-```
-
-### EVM Object Format (EOF) support
-
-evmone supports EOFv1. Since EOF validation is done once during deploy-time, evmone does not revalidate during execution of bytecode. To force EOF revalidation, you can use the `validate_eof` option, example:
-
-```
-evmc run --vm libevmone.so,validate_eof --rev 15 "EF00"
 ```
 
 ## References

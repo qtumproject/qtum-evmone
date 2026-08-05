@@ -4,7 +4,6 @@
 #pragma once
 
 #include "baseline.hpp"
-#include "eof.hpp"
 #include "execution_state.hpp"
 #include "instructions_traits.hpp"
 #include "instructions_xmacro.hpp"
@@ -56,6 +55,46 @@ struct Result
 struct TermResult : Result
 {};
 
+
+/// Swap two values.
+constexpr void fast_swap(uint256& x, uint256& y) noexcept
+{
+    // The simple std::swap(stack.top(), stack[N]) is not used to work around
+    // clang missed optimization: https://github.com/llvm/llvm-project/issues/59116
+    // TODO(clang): Check if #59116 bug fix has been released.
+
+    auto t0 = x[0];
+    auto t1 = x[1];
+    auto t2 = x[2];
+    auto t3 = x[3];
+    x = y;
+    y[0] = t0;
+    y[1] = t1;
+    y[2] = t2;
+    y[3] = t3;
+}
+
+/// Decode DUPN/SWAPN immediate. Returns the stack depth n [17–235],
+/// or std::nullopt if the immediate is in the forbidden range [0x5b–0x7f].
+constexpr std::optional<int> decode_dupn_swapn_imm(uint8_t imm) noexcept
+{
+    if (imm >= 0x5b && imm <= 0x7f)
+        return std::nullopt;
+    return static_cast<uint8_t>(imm + 0x91);
+}
+
+/// Decode EXCHANGE immediate. Returns the pair (n, m) with 1 <= n < m and n + m <= 30,
+/// or std::nullopt if the immediate is in the forbidden range [0x52–0x7f].
+constexpr std::optional<std::pair<int, int>> decode_exchange_imm(uint8_t imm) noexcept
+{
+    if (imm >= 0x52 && imm <= 0x7f)
+        return std::nullopt;
+    const auto k = imm ^ 0x8f;
+    const auto q = k / 16;
+    const auto r = k % 16;
+    return (q < r) ? std::pair{q + 1, r + 1} : std::pair{r + 1, 29 - q};
+}
+
 constexpr auto max_buffer_size = std::numeric_limits<uint32_t>::max();
 
 /// The size of the EVM 256-bit word.
@@ -86,7 +125,7 @@ constexpr int64_t copy_cost(uint64_t size_in_bytes) noexcept
     int64_t gas_left, Memory& memory, uint64_t new_size) noexcept
 {
     // This implementation recomputes memory.size(). This value is already known to the caller
-    // and can be passed as a parameter, but this make no difference to the performance.
+    // and can be passed as a parameter, but this makes no difference to the performance.
 
     const auto new_words = num_words(new_size);
     const auto current_words = static_cast<int64_t>(memory.size() / word_size);
@@ -112,9 +151,13 @@ inline bool check_memory(
 
     const auto new_size = static_cast<uint64_t>(offset) + size;
     if (new_size > memory.size())
+    {
         gas_left = grow_memory(gas_left, memory, new_size);
+        if (gas_left < 0) [[unlikely]]
+            return false;
+    }
 
-    return gas_left >= 0;  // Always true for no-grow case.
+    return true;
 }
 
 /// Check memory requirements for "copy" instructions.
@@ -264,35 +307,35 @@ inline void signextend(StackTop stack) noexcept
 inline void lt(StackTop stack) noexcept
 {
     const auto& x = stack.pop();
-    stack[0] = x < stack[0];
+    stack[0] = uint64_t{x < stack[0]};
 }
 
 inline void gt(StackTop stack) noexcept
 {
     const auto& x = stack.pop();
-    stack[0] = stack[0] < x;  // Arguments are swapped and < is used.
+    stack[0] = uint64_t{stack[0] < x};  // Arguments are swapped and < is used.
 }
 
 inline void slt(StackTop stack) noexcept
 {
     const auto& x = stack.pop();
-    stack[0] = slt(x, stack[0]);
+    stack[0] = uint64_t{slt(x, stack[0])};
 }
 
 inline void sgt(StackTop stack) noexcept
 {
     const auto& x = stack.pop();
-    stack[0] = slt(stack[0], x);  // Arguments are swapped and SLT is used.
+    stack[0] = uint64_t{slt(stack[0], x)};  // Arguments are swapped and SLT is used.
 }
 
 inline void eq(StackTop stack) noexcept
 {
-    stack[1] = stack[0] == stack[1];
+    stack[1] = uint64_t{stack[0] == stack[1]};
 }
 
 inline void iszero(StackTop stack) noexcept
 {
-    stack.top() = stack.top() == 0;
+    stack.top() = uint64_t{stack.top() == 0};
 }
 
 inline void and_(StackTop stack) noexcept
@@ -525,6 +568,11 @@ inline void blobbasefee(StackTop stack, ExecutionState& state) noexcept
     stack.push(intx::be::load<uint256>(state.get_tx_context().blob_base_fee));
 }
 
+inline void slotnum(StackTop stack, ExecutionState& state) noexcept
+{
+    stack.push(state.get_tx_context().block_slot_number);
+}
+
 inline Result extcodesize(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 {
     auto& x = stack.top();
@@ -573,25 +621,6 @@ inline Result extcodecopy(StackTop stack, int64_t gas_left, ExecutionState& stat
     return {EVMC_SUCCESS, gas_left};
 }
 
-inline void returndataload(StackTop stack, ExecutionState& state) noexcept
-{
-    auto& index = stack.top();
-
-    if (state.return_data.size() < index)
-        index = 0;
-    else
-    {
-        const auto begin = static_cast<size_t>(index);
-        const auto end = std::min(begin + 32, state.return_data.size());
-
-        uint8_t data[32] = {};
-        for (size_t i = 0; i < (end - begin); ++i)
-            data[i] = state.return_data[begin + i];
-
-        index = intx::be::unsafe::load<uint256>(data);
-    }
-}
-
 inline void returndatasize(StackTop stack, ExecutionState& state) noexcept
 {
     stack.push(state.return_data.size());
@@ -609,36 +638,18 @@ inline Result returndatacopy(StackTop stack, int64_t gas_left, ExecutionState& s
     auto dst = static_cast<size_t>(mem_index);
     auto s = static_cast<size_t>(size);
 
-    if (is_eof_container(state.original_code))
-    {
-        auto src = state.return_data.size() < input_index ? state.return_data.size() :
-                                                            static_cast<size_t>(input_index);
-        auto copy_size = std::min(s, state.return_data.size() - src);
+    if (state.return_data.size() < input_index)
+        return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
+    auto src = static_cast<size_t>(input_index);
 
-        if (const auto cost = copy_cost(s); (gas_left -= cost) < 0)
-            return {EVMC_OUT_OF_GAS, gas_left};
+    if (src + s > state.return_data.size())
+        return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
 
-        if (copy_size > 0)
-            std::memcpy(&state.memory[dst], &state.return_data[src], copy_size);
+    if (const auto cost = copy_cost(s); (gas_left -= cost) < 0)
+        return {EVMC_OUT_OF_GAS, gas_left};
 
-        if (s - copy_size > 0)
-            std::memset(&state.memory[dst + copy_size], 0, s - copy_size);
-    }
-    else
-    {
-        if (state.return_data.size() < input_index)
-            return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
-        auto src = static_cast<size_t>(input_index);
-
-        if (src + s > state.return_data.size())
-            return {EVMC_INVALID_MEMORY_ACCESS, gas_left};
-
-        if (const auto cost = copy_cost(s); (gas_left -= cost) < 0)
-            return {EVMC_OUT_OF_GAS, gas_left};
-
-        if (s > 0)
-            std::memcpy(&state.memory[dst], &state.return_data[src], s);
-    }
+    if (s > 0)
+        std::memcpy(&state.memory[dst], &state.return_data[src], s);
 
     return {EVMC_SUCCESS, gas_left};
 }
@@ -758,7 +769,7 @@ inline code_iterator jump_impl(ExecutionState& state, const uint256& dst) noexce
         return nullptr;
     }
 
-    return &state.analysis.baseline->executable_code()[static_cast<size_t>(dst[0])];
+    return &state.analysis.baseline->code()[static_cast<size_t>(dst[0])];
 }
 
 /// JUMP instruction implementation using baseline::CodeAnalysis.
@@ -775,43 +786,9 @@ inline code_iterator jumpi(StackTop stack, ExecutionState& state, code_iterator 
     return cond ? jump_impl(state, dst) : pos + 1;
 }
 
-inline code_iterator rjump(StackTop /*stack*/, ExecutionState& /*state*/, code_iterator pc) noexcept
-{
-    // Reading next 2 bytes is guaranteed to be safe by deploy-time validation.
-    const auto offset = read_int16_be(&pc[1]);
-    return pc + 3 + offset;  // PC_post_rjump + offset
-}
-
-inline code_iterator rjumpi(StackTop stack, ExecutionState& state, code_iterator pc) noexcept
-{
-    const auto cond = stack.pop();
-    return cond ? rjump(stack, state, pc) : pc + 3;
-}
-
-inline code_iterator rjumpv(StackTop stack, ExecutionState& /*state*/, code_iterator pc) noexcept
-{
-    constexpr auto REL_OFFSET_SIZE = sizeof(int16_t);
-    const auto case_ = stack.pop();
-
-    const auto max_index = pc[1];
-    const auto pc_post = pc + 1 + 1 /* max_index */ + (max_index + 1) * REL_OFFSET_SIZE /* tbl */;
-
-    if (case_ > max_index)
-    {
-        return pc_post;
-    }
-    else
-    {
-        const auto rel_offset =
-            read_int16_be(&pc[2 + static_cast<uint16_t>(case_) * REL_OFFSET_SIZE]);
-
-        return pc_post + rel_offset;
-    }
-}
-
 inline code_iterator pc(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
 {
-    stack.push(static_cast<uint64_t>(pos - state.analysis.baseline->executable_code().data()));
+    stack.push(static_cast<uint64_t>(pos - state.analysis.baseline->code().data()));
     return pos + 1;
 }
 
@@ -935,43 +912,66 @@ template <int N>
 inline void swap(StackTop stack) noexcept
 {
     static_assert(N >= 1 && N <= 16);
-
-    // The simple std::swap(stack.top(), stack[N]) is not used to workaround
-    // clang missed optimization: https://github.com/llvm/llvm-project/issues/59116
-    // TODO(clang): Check if #59116 bug fix has been released.
-
-    auto& a = stack[N];
-    auto& t = stack.top();
-    auto t0 = t[0];
-    auto t1 = t[1];
-    auto t2 = t[2];
-    auto t3 = t[3];
-    t = a;
-    a[0] = t0;
-    a[1] = t1;
-    a[2] = t2;
-    a[3] = t3;
+    fast_swap(stack.top(), stack[N]);
 }
 
-inline code_iterator dupn(StackTop stack, code_iterator pos) noexcept
+inline code_iterator dupn(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
 {
-    stack.push(stack[pos[1]]);
+    const auto n = decode_dupn_swapn_imm(pos[1]);
+    if (!n)
+    {
+        state.status = EVMC_UNDEFINED_INSTRUCTION;
+        return nullptr;
+    }
+
+    // Stack overflow is checked by check_requirements() (stack_height_change=+1).
+    const auto stack_size = stack.end() - state.stack_space.bottom();
+    if (*n > stack_size)
+    {
+        state.status = EVMC_STACK_UNDERFLOW;
+        return nullptr;
+    }
+
+    stack.push(stack[*n - 1]);
     return pos + 2;
 }
 
-inline code_iterator swapn(StackTop stack, code_iterator pos) noexcept
+inline code_iterator swapn(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
 {
-    // TODO: This may not be optimal, see instr::core::swap().
-    std::swap(stack.top(), stack[pos[1] + 1]);
+    const auto n = decode_dupn_swapn_imm(pos[1]);
+    if (!n)
+    {
+        state.status = EVMC_UNDEFINED_INSTRUCTION;
+        return nullptr;
+    }
+
+    if (const auto stack_size = stack.end() - state.stack_space.bottom(); *n >= stack_size)
+    {
+        state.status = EVMC_STACK_UNDERFLOW;
+        return nullptr;
+    }
+
+    fast_swap(stack.top(), stack[*n]);
     return pos + 2;
 }
 
-inline code_iterator exchange(StackTop stack, code_iterator pos) noexcept
+inline code_iterator exchange(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
 {
-    const auto n = (pos[1] >> 4) + 1;
-    const auto m = (pos[1] & 0x0f) + 1;
-    // TODO: This may not be optimal, see instr::core::swap().
-    std::swap(stack[n], stack[n + m]);
+    const auto decoded = decode_exchange_imm(pos[1]);
+    if (!decoded)
+    {
+        state.status = EVMC_UNDEFINED_INSTRUCTION;
+        return nullptr;
+    }
+
+    const auto [n, m] = *decoded;
+    if (const auto stack_size = stack.end() - state.stack_space.bottom(); m >= stack_size)
+    {
+        state.status = EVMC_STACK_UNDERFLOW;
+        return nullptr;
+    }
+
+    fast_swap(stack[n], stack[m]);
     return pos + 2;
 }
 
@@ -993,67 +993,6 @@ inline Result mcopy(StackTop stack, int64_t gas_left, ExecutionState& state) noe
 
     if (size > 0)
         std::memmove(&state.memory[dst], &state.memory[src], size);
-
-    return {EVMC_SUCCESS, gas_left};
-}
-
-inline void dataload(StackTop stack, ExecutionState& state) noexcept
-{
-    const auto data = state.analysis.baseline->eof_data();
-    auto& index = stack.top();
-
-    if (data.size() < index)
-        index = 0;
-    else
-    {
-        const auto begin = static_cast<size_t>(index);
-        const auto end = std::min(begin + 32, data.size());
-
-        uint8_t d[32] = {};
-        for (size_t i = 0; i < (end - begin); ++i)
-            d[i] = data[begin + i];
-
-        index = intx::be::unsafe::load<uint256>(d);
-    }
-}
-
-inline void datasize(StackTop stack, ExecutionState& state) noexcept
-{
-    stack.push(state.analysis.baseline->eof_data().size());
-}
-
-inline code_iterator dataloadn(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
-{
-    const auto index = read_uint16_be(&pos[1]);
-
-    stack.push(intx::be::unsafe::load<uint256>(&state.analysis.baseline->eof_data()[index]));
-    return pos + 3;
-}
-
-inline Result datacopy(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
-{
-    const auto data = state.analysis.baseline->eof_data();
-    const auto& mem_index = stack.pop();
-    const auto& data_index = stack.pop();
-    const auto& size = stack.pop();
-
-    if (!check_memory(gas_left, state.memory, mem_index, size))
-        return {EVMC_OUT_OF_GAS, gas_left};
-
-    const auto dst = static_cast<size_t>(mem_index);
-    // TODO why?
-    const auto src = data.size() < data_index ? data.size() : static_cast<size_t>(data_index);
-    const auto s = static_cast<size_t>(size);
-    const auto copy_size = std::min(s, data.size() - src);
-
-    if (const auto cost = copy_cost(s); (gas_left -= cost) < 0)
-        return {EVMC_OUT_OF_GAS, gas_left};
-
-    if (copy_size > 0)
-        std::memcpy(&state.memory[dst], &data[src], copy_size);
-
-    if (s - copy_size > 0)
-        std::memset(&state.memory[dst + copy_size], 0, s - copy_size);
 
     return {EVMC_SUCCESS, gas_left};
 }
@@ -1080,8 +1019,11 @@ inline Result log(StackTop stack, int64_t gas_left, ExecutionState& state) noexc
         return {EVMC_OUT_OF_GAS, gas_left};
 
     std::array<evmc::bytes32, NumTopics> topics;  // NOLINT(cppcoreguidelines-pro-type-member-init)
-    for (auto& topic : topics)
-        topic = intx::be::store<evmc::bytes32>(stack.pop());
+    if constexpr (NumTopics > 0)
+    {
+        for (auto& topic : topics)
+            topic = intx::be::store<evmc::bytes32>(stack.pop());
+    }
 
     const auto data = s != 0 ? &state.memory[o] : nullptr;
     state.host.emit_log(state.msg->recipient, data, s, topics.data(), NumTopics);
@@ -1097,68 +1039,9 @@ inline constexpr auto delegatecall = call_impl<OP_DELEGATECALL>;
 inline constexpr auto staticcall = call_impl<OP_STATICCALL>;
 
 template <Opcode Op>
-Result extcall_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept;
-inline constexpr auto extcall = extcall_impl<OP_EXTCALL>;
-inline constexpr auto extdelegatecall = extcall_impl<OP_EXTDELEGATECALL>;
-inline constexpr auto extstaticcall = extcall_impl<OP_EXTSTATICCALL>;
-
-template <Opcode Op>
 Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept;
 inline constexpr auto create = create_impl<OP_CREATE>;
 inline constexpr auto create2 = create_impl<OP_CREATE2>;
-
-template <Opcode Op>
-Result create_eof_impl(
-    StackTop stack, int64_t gas_left, ExecutionState& state, code_iterator& pos) noexcept;
-inline constexpr auto eofcreate = create_eof_impl<OP_EOFCREATE>;
-inline constexpr auto txcreate = create_eof_impl<OP_TXCREATE>;
-
-inline code_iterator callf(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
-{
-    const auto index = read_uint16_be(&pos[1]);
-    const auto& header = state.analysis.baseline->eof_header();
-    const auto stack_size = stack.end() - state.stack_space.bottom();
-    const auto callee_type = header.get_type(state.original_code, index);
-    if (stack_size + callee_type.max_stack_increase > StackSpace::limit)
-    {
-        state.status = EVMC_STACK_OVERFLOW;
-        return nullptr;
-    }
-
-    if (state.call_stack.size() >= StackSpace::limit)
-    {
-        // TODO: Add different error code.
-        state.status = EVMC_STACK_OVERFLOW;
-        return nullptr;
-    }
-    state.call_stack.push_back(pos + 3);
-
-    const auto offset = header.code_offsets[index] - header.code_offsets[0];
-    return state.analysis.baseline->executable_code().data() + offset;
-}
-
-inline code_iterator retf(StackTop /*stack*/, ExecutionState& state, code_iterator /*pos*/) noexcept
-{
-    const auto p = state.call_stack.back();
-    state.call_stack.pop_back();
-    return p;
-}
-
-inline code_iterator jumpf(StackTop stack, ExecutionState& state, code_iterator pos) noexcept
-{
-    const auto index = read_uint16_be(&pos[1]);
-    const auto& header = state.analysis.baseline->eof_header();
-    const auto stack_size = stack.end() - state.stack_space.bottom();
-    const auto callee_type = header.get_type(state.original_code, index);
-    if (stack_size + callee_type.max_stack_increase > StackSpace::limit)
-    {
-        state.status = EVMC_STACK_OVERFLOW;
-        return nullptr;
-    }
-
-    const auto offset = header.code_offsets[index] - header.code_offsets[0];
-    return state.analysis.baseline->executable_code().data() + offset;
-}
 
 template <evmc_status_code StatusCode>
 inline TermResult return_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
@@ -1176,29 +1059,6 @@ inline TermResult return_impl(StackTop stack, int64_t gas_left, ExecutionState& 
 }
 inline constexpr auto return_ = return_impl<EVMC_SUCCESS>;
 inline constexpr auto revert = return_impl<EVMC_REVERT>;
-
-inline TermResult returncode(
-    StackTop stack, int64_t gas_left, ExecutionState& state, code_iterator pos) noexcept
-{
-    const auto& offset = stack[0];
-    const auto& size = stack[1];
-
-    if (!check_memory(gas_left, state.memory, offset, size))
-        return {EVMC_OUT_OF_GAS, gas_left};
-
-    const auto deploy_container_index = size_t{pos[1]};
-    bytes deploy_container{state.analysis.baseline->eof_header().get_container(
-        state.original_code, deploy_container_index)};
-
-    // Append (offset, size) to data section
-    if (!append_data_section(deploy_container,
-            {&state.memory[static_cast<size_t>(offset)], static_cast<size_t>(size)}))
-        return {EVMC_OUT_OF_GAS, gas_left};
-
-    state.deploy_container = std::move(deploy_container);
-
-    return {EVMC_SUCCESS, gas_left};
-}
 
 inline TermResult selfdestruct(StackTop stack, int64_t gas_left, ExecutionState& state) noexcept
 {

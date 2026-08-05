@@ -7,85 +7,44 @@
 
 namespace evmmax::bn254
 {
-consteval Fq2 make_fq2(const uint256& a, const uint256& b) noexcept
-{
-    return Fq2({Fq::from_int(a), Fq::from_int(b)});
-}
-
 /// Defines coefficients needed for fast Frobenius endomorphism computation.
 /// For more ref see https://eprint.iacr.org/2010/354.pdf 3.2 Frobenius Operator.
-/// TODO: Make it constexpr.
-static inline std::array<std::array<Fq2, 5>, 3> FROBENIUS_COEFFS = {
-    {
-        {
-            make_fq2(
-                8376118865763821496583973867626364092589906065868298776909617916018768340080_u256,
-                16469823323077808223889137241176536799009286646108169935659301613961712198316_u256),
-            make_fq2(
-                21575463638280843010398324269430826099269044274347216827212613867836435027261_u256,
-                10307601595873709700152284273816112264069230130616436755625194854815875713954_u256),
-            make_fq2(
-                2821565182194536844548159561693502659359617185244120367078079554186484126554_u256,
-                3505843767911556378687030309984248845540243509899259641013678093033130930403_u256),
-            make_fq2(
-                2581911344467009335267311115468803099551665605076196740867805258568234346338_u256,
-                19937756971775647987995932169929341994314640652964949448313374472400716661030_u256),
-            make_fq2(
-                685108087231508774477564247770172212460312782337200605669322048753928464687_u256,
-                8447204650696766136447902020341177575205426561248465145919723016860428151883_u256),
-        },
-        {
-            make_fq2(
-                21888242871839275220042445260109153167277707414472061641714758635765020556617_u256,
-                0_u256),
-            make_fq2(
-                21888242871839275220042445260109153167277707414472061641714758635765020556616_u256,
-                0_u256),
-            make_fq2(
-                21888242871839275222246405745257275088696311157297823662689037894645226208582_u256,
-                0_u256),
-            make_fq2(2203960485148121921418603742825762020974279258880205651966_u256, 0_u256),
-            make_fq2(2203960485148121921418603742825762020974279258880205651967_u256, 0_u256),
-        },
-        {
-            make_fq2(
-                11697423496358154304825782922584725312912383441159505038794027105778954184319_u256,
-                303847389135065887422783454877609941456349188919719272345083954437860409601_u256),
-            make_fq2(
-                3772000881919853776433695186713858239009073593817195771773381919316419345261_u256,
-                2236595495967245188281701248203181795121068902605861227855261137820944008926_u256),
-            make_fq2(
-                19066677689644738377698246183563772429336693972053703295610958340458742082029_u256,
-                18382399103927718843559375435273026243156067647398564021675359801612095278180_u256),
-            make_fq2(
-                5324479202449903542726783395506214481928257762400643279780343368557297135718_u256,
-                16208900380737693084919495127334387981393726419856888799917914180988844123039_u256),
-            make_fq2(
-                8941241848238582420466759817324047081148088512956452953208002715982955420483_u256,
-                10338197737521362862238855242243140895517409139741313354160881284257516364953_u256),
-        },
-    },
-};
-
-/// Verifies that value is in the proper prime field.
-constexpr bool is_field_element(const uint256& v)
-{
-    return v < Curve::FIELD_PRIME;
-}
-
-/// Verifies that affine point is on the curve (not twisted)
-constexpr bool is_on_curve(const ecc::Point<Fq>& p) noexcept
-{
-    // TODO(C++23): make static
-    constexpr auto B = Fq::from_int(3);
-
-    const auto x3 = p.x * p.x * p.x;
-    const auto y2 = p.y * p.y;
-    return y2 == x3 + B;
-}
+inline constexpr std::array<std::array<Fq2, 5>, 3> FROBENIUS_COEFFS = {{
+    {{
+        {0x1284b71c2865a7dfe8b99fdd76e68b605c521e08292f2176d60b35dadcc9e470_u256,
+            0x246996f3b4fae7e6a6327cfe12150b8e747992778eeec7e5ca5cf05f80f362ac_u256},
+        {0x2fb347984f7911f74c0bec3cf559b143b78cc310c2c3330c99e39557176f553d_u256,
+            0x16c9e55061ebae204ba4cc8bd75a079432ae2a1d0b7c9dce1665d51c640fcba2_u256},
+        {0x63cf305489af5dcdc5ec698b6e2f9b9dbaae0eda9c95998dc54014671a0135a_u256,
+            0x7c03cbcac41049a0704b5a7ec796f2b21807dc98fa25bd282d37f632623b0e3_u256},
+        {0x5b54f5e64eea80180f3c0b75a181e84d33365f7be94ec72848a1f55921ea762_u256,
+            0x2c145edbe7fd8aee9f3a80b03b0b1c923685d2ea1bdec763c13b4711cd2b8126_u256},
+        {0x183c1e74f798649e93a3661a4353ff4425c459b55aa1bd32ea2c810eab7692f_u256,
+            0x12acf2ca76fd0675a27fb246c7729f7db080cb99678e2ac024c6b8ee6e0c2c4b_u256},
+    }},
+    {{
+        {0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd49_u256, 0_u256},
+        {0x30644e72e131a0295e6dd9e7e0acccb0c28f069fbb966e3de4bd44e5607cfd48_u256, 0_u256},
+        {0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd46_u256, 0_u256},
+        {0x000000000000000059e26bcea0d48bacd4f263f1acdb5c4f5763473177fffffe_u256, 0_u256},
+        {0x000000000000000059e26bcea0d48bacd4f263f1acdb5c4f5763473177ffffff_u256, 0_u256},
+    }},
+    {{
+        {0x19dc81cfcc82e4bbefe9608cd0acaa90894cb38dbe55d24ae86f7d391ed4a67f_u256,
+            0xabf8b60be77d7306cbeee33576139d7f03a5e397d439ec7694aa2bf4c0c101_u256},
+        {0x856e078b755ef0abaff1c77959f25ac805ffd3d5d6942d37b746ee87bdcfb6d_u256,
+            0x4f1de41b3d1766fa9f30e6dec26094f0fdf31bf98ff2631380cab2baaa586de_u256},
+        {0x2a275b6d9896aa4cdbf17f1dca9e5ea3bbd689a3bea870f45fcc8ad066dce9ed_u256,
+            0x28a411b634f09b8fb14b900e9507e9327600ecc7d8cf6ebab94d0cb3b2594c64_u256},
+        {0xbc58c6611c08dab19bee0f7b5b2444ee633094575b06bcb0e1a92bc3ccbf066_u256,
+            0x23d5e999e1910a12feb0f6ef0cd21d04a44a9e08737f96e55fe3ed9d730c239f_u256},
+        {0x13c49044952c0905711699fa3b4d3f692ed68098967c84a5ebde847076261b43_u256,
+            0x16db366a59b1dd0b9fb1b2282a48633d3e2ddaea200280211f25041384282499_u256},
+    }},
+}};
 
 /// Verifies that affine point over Fq^2 field is on the twisted curve.
-constexpr bool is_on_twisted_curve(const evmmax::ecc::Point<Fq2>& p)
+constexpr bool is_on_twisted_curve(const ecc::AffinePoint<E2>& p)
 {
     const auto x3 = p.x * p.x * p.x;
     const auto y2 = p.y * p.y;
@@ -93,19 +52,7 @@ constexpr bool is_on_twisted_curve(const evmmax::ecc::Point<Fq2>& p)
     return y2 == x3 + Fq6Config::_3_ksi_inv;
 }
 
-/// Verifies that affine point over the base field is infinity.
-constexpr bool is_infinity(const evmmax::ecc::Point<Fq>& p)
-{
-    return p.x.is_zero() && p.y.is_zero();
-}
-
-/// Verifies that affine point over the Fq^2 extended field is infinity.
-constexpr bool g2_is_infinity(const evmmax::ecc::Point<Fq2>& p)
-{
-    return p.x == Fq2::zero() && p.y == Fq2::zero();
-}
-
-// Forbenius endomorphism related functions are implemented based on
+// Frobenius endomorphism related functions are implemented based on
 // https://hackmd.io/@jpw/bn254#mathbb-G_2-membership-check-using-efficient-endomorphism
 // and
 // https://eprint.iacr.org/2010/354.pdf 3.2 Frobenius Operator
@@ -115,7 +62,7 @@ constexpr bool g2_is_infinity(const evmmax::ecc::Point<Fq2>& p)
 /// This specialisation computes Frobenius and Frobenius^3
 /// TODO: add reference that it's exactly the same as untwist->frobenius->twist
 template <int P>
-constexpr ecc::JacPoint<Fq2> endomorphism(const ecc::JacPoint<Fq2>& p) noexcept
+constexpr ecc::ProjPoint<E2> endomorphism(const ecc::ProjPoint<E2>& p) noexcept
     requires(P == 1 || P == 3)
 {
     return {
@@ -129,7 +76,7 @@ constexpr ecc::JacPoint<Fq2> endomorphism(const ecc::JacPoint<Fq2>& p) noexcept
 /// over Fq^2 extended field.
 /// This specialisation computes Frobenius^2
 template <int P>
-constexpr ecc::JacPoint<Fq2> endomorphism(const ecc::JacPoint<Fq2>& p) noexcept
+constexpr ecc::ProjPoint<E2> endomorphism(const ecc::ProjPoint<E2>& p) noexcept
     requires(P == 2)
 {
     return {
@@ -143,7 +90,7 @@ constexpr ecc::JacPoint<Fq2> endomorphism(const ecc::JacPoint<Fq2>& p) noexcept
 /// over Fq^2 extended field.
 /// This specialisation computes Frobenius and Frobenius^3
 template <int P>
-constexpr ecc::Point<Fq2> endomorphism(const ecc::Point<Fq2>& p) noexcept
+constexpr ecc::AffinePoint<E2> endomorphism(const ecc::AffinePoint<E2>& p) noexcept
     requires(P == 1 || P == 3)
 {
     return {
@@ -156,7 +103,7 @@ constexpr ecc::Point<Fq2> endomorphism(const ecc::Point<Fq2>& p) noexcept
 /// over Fq^2 extended field.
 /// This specialisation computes Frobenius^2
 template <int P>
-constexpr ecc::Point<Fq2> endomorphism(const ecc::Point<Fq2>& p) noexcept
+constexpr ecc::AffinePoint<E2> endomorphism(const ecc::AffinePoint<E2>& p) noexcept
     requires(P == 2)
 {
     return {
@@ -207,8 +154,9 @@ constexpr Fq12 endomorphism(const Fq12& f) noexcept
 
 
 /// Computes `P0 + P1` in Jacobian coordinates.
-constexpr ecc::JacPoint<Fq2> add(
-    const ecc::JacPoint<Fq2>& P0, const ecc::JacPoint<Fq2>& P1) noexcept
+/// P0 and P1 must not be the point at infinity, and must not be equal or negations of each other.
+constexpr ecc::ProjPoint<E2> add(
+    const ecc::ProjPoint<E2>& P0, const ecc::ProjPoint<E2>& P1) noexcept
 {
     const auto& x0 = P0.x;
     const auto& y0 = P0.y;
@@ -245,7 +193,7 @@ constexpr ecc::JacPoint<Fq2> add(
 }
 
 /// Computes `Q + Q` in Jacobian coordinates.
-constexpr ecc::JacPoint<Fq2> dbl(const ecc::JacPoint<Fq2>& Q) noexcept
+constexpr ecc::ProjPoint<E2> dbl(const ecc::ProjPoint<E2>& Q) noexcept
 {
     const auto& x = Q.x;
     const auto& y = Q.y;
@@ -273,7 +221,7 @@ constexpr ecc::JacPoint<Fq2> dbl(const ecc::JacPoint<Fq2>& Q) noexcept
 
 /// Computes `N` doubles of the point `a` in Jacobian coordinates.
 template <int N>
-constexpr ecc::JacPoint<Fq2> n_dbl(const ecc::JacPoint<Fq2>& a) noexcept
+constexpr ecc::ProjPoint<E2> n_dbl(const ecc::ProjPoint<E2>& a) noexcept
 {
     auto r = dbl(a);
     for (int i = 0; i < N - 1; ++i)
@@ -284,7 +232,7 @@ constexpr ecc::JacPoint<Fq2> n_dbl(const ecc::JacPoint<Fq2>& a) noexcept
 
 /// Addchain generated algorithm which multiplies point `a` in Jacobian coordinated
 /// by X (curve seed).
-constexpr ecc::JacPoint<Fq2> mul_by_X(const ecc::JacPoint<Fq2>& a) noexcept
+constexpr ecc::ProjPoint<E2> mul_by_X(const ecc::ProjPoint<E2>& a) noexcept
 {
     auto t0 = dbl(a);
     auto t2 = dbl(t0);
@@ -322,9 +270,9 @@ constexpr ecc::JacPoint<Fq2> mul_by_X(const ecc::JacPoint<Fq2>& a) noexcept
 
 /// Checks that point `p_aff` is in proper subgroup of points from twisted curve over Fq2 field.
 /// For more details see https://eprint.iacr.org/2022/348.pdf Example 1 from 3.1.2 Examples
-constexpr bool g2_subgroup_check(const ecc::Point<Fq2>& p_aff)
+constexpr bool g2_subgroup_check(const ecc::AffinePoint<E2>& p_aff)
 {
-    const auto p = ecc::JacPoint<Fq2>::from(p_aff);
+    const auto p = ecc::ProjPoint<E2>{p_aff};
 
     const auto px = mul_by_X(p);
     const auto px1 = add(px, p);
@@ -343,8 +291,8 @@ constexpr bool g2_subgroup_check(const ecc::Point<Fq2>& p_aff)
 /// the curve (not twisted curve) evaluated at point P
 /// Returns live evaluation coefficients (-t, tw, tvw)
 /// For more details see https://notes.ethereum.org/@ipsilon/Hkn2a2qk0
-constexpr ecc::JacPoint<Fq2> lin_func_and_dbl(
-    const ecc::JacPoint<Fq2>& Q, std::array<Fq2, 3>& t) noexcept
+constexpr ecc::ProjPoint<E2> lin_func_and_dbl(
+    const ecc::ProjPoint<E2>& Q, std::array<Fq2, 3>& t) noexcept
 {
     const auto& x = Q.x;
     const auto& y = Q.y;
@@ -371,14 +319,14 @@ constexpr ecc::JacPoint<Fq2> lin_func_and_dbl(
     t[1] = M * z_squared;
     t[2] = R - M * x;
 
-    return ecc::JacPoint<Fq2>{Xp, Yp, Zp};
+    return ecc::ProjPoint<E2>{Xp, Yp, Zp};
 }
 
 /// Computes points P0 and P1 addition for twisted curve + line defined by untwisted P1 and P2
 /// points on the curve (not twisted curve) evaluated at point P. Formula is simplified for P1.z
 /// == 1. For more details see https://notes.ethereum.org/@ipsilon/Hkn2a2qk0
-[[nodiscard]] constexpr ecc::JacPoint<Fq2> lin_func_and_add(
-    const ecc::JacPoint<Fq2>& P0, const ecc::Point<Fq2>& P1, std::array<Fq2, 3>& t) noexcept
+[[nodiscard]] constexpr ecc::ProjPoint<E2> lin_func_and_add(
+    const ecc::ProjPoint<E2>& P0, const ecc::AffinePoint<E2>& P1, std::array<Fq2, 3>& t) noexcept
 {
     const auto& x0 = P0.x;
     const auto& y0 = P0.y;
@@ -393,7 +341,7 @@ constexpr ecc::JacPoint<Fq2> lin_func_and_dbl(
     const auto U2 = x1 * z0_squared;
     const auto S2 = y1 * z0_cubed;
     const auto H = U2 - x0;  // x1 * z0^2 - x0 * z1^2
-    const auto R = S2 - y0;  // y1 * z0^3 - y0 * z1 ^3
+    const auto R = S2 - y0;  // y1 * z0^3 - y0 * z1^3
 
     const auto H_squared = H * H;
     const auto H_cubed = H * H_squared;
@@ -402,21 +350,21 @@ constexpr ecc::JacPoint<Fq2> lin_func_and_dbl(
     const auto V = x0 * H_squared;
 
     const auto X3 = R_squared - H_cubed - (V + V);
-    const auto Y3 = R * (x0 * H_squared - X3) - y0 * H_cubed;
+    const auto Y3 = R * (V - X3) - y0 * H_cubed;
     const auto Z3 = H * z0;
 
-    t[0] = (z0 * z0_squared * x0 - U2 * z0_cubed);
-    t[1] = (S2 * z0_squared - y0 * z0_squared);
+    t[0] = -H * z0_cubed;   // = x0·z0³ − U2·z0³
+    t[1] = R * z0_squared;  // = S2·z0² − y0·z0²
     t[2] = y0 * U2 - x0 * S2;
 
-    return ecc::JacPoint<Fq2>{X3, Y3, Z3};
+    return ecc::ProjPoint<E2>{X3, Y3, Z3};
 }
 
 /// Computes points P0 and P1 addition for twisted curve + line defined by untwisted P1 and P2
 /// points on the curve (not twisted curve) evaluated at point P. Formula is simplified for P1.z
 /// == 1. For more details see https://notes.ethereum.org/@ipsilon/Hkn2a2qk0
 constexpr void lin_func(
-    const ecc::JacPoint<Fq2>& P0, const ecc::Point<Fq2>& P1, std::array<Fq2, 3>& t) noexcept
+    const ecc::ProjPoint<E2>& P0, const ecc::AffinePoint<E2>& P1, std::array<Fq2, 3>& t) noexcept
 {
     const auto& x0 = P0.x;
     const auto& y0 = P0.y;
@@ -431,8 +379,8 @@ constexpr void lin_func(
     const auto U2 = x1 * z0_squared;
     const auto S2 = y1 * z0_cubed;
 
-    t[0] = (z0 * z0_squared * x0 - U2 * z0_cubed);
-    t[1] = (S2 * z0_squared - y0 * z0_squared);
+    t[0] = (x0 - U2) * z0_cubed;    // = x0·z0³ − U2·z0³
+    t[1] = (S2 - y0) * z0_squared;  // = S2·z0² − y0·z0²
     t[2] = y0 * U2 - x0 * S2;
 }
 
