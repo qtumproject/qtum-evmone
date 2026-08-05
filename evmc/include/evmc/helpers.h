@@ -209,6 +209,8 @@ static inline const char* evmc_status_code_to_string(enum evmc_status_code statu
         return "wasm trap";
     case EVMC_INSUFFICIENT_BALANCE:
         return "insufficient balance";
+    case EVMC_CREATE_WITH_VALUE:
+        return "create with value";
     case EVMC_INTERNAL_ERROR:
         return "internal error";
     case EVMC_REJECTED:
