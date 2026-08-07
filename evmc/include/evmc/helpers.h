@@ -168,6 +168,26 @@ static inline void evmc_release_result(struct evmc_result* result)
         result->release(result);
 }
 
+union evmc_result_optional_storage
+{
+    uint8_t bytes[24]; /**< 24 bytes of optional storage. */
+    void* pointer;     /**< Optional pointer. */
+};
+
+/** Provides read-write access to evmc_result "optional storage". */
+static inline union evmc_result_optional_storage* evmc_get_optional_storage(
+    struct evmc_result* result)
+{
+    return (union evmc_result_optional_storage*)&result->create_address;
+}
+
+/** Provides read-only access to evmc_result "optional storage". */
+static inline const union evmc_result_optional_storage* evmc_get_const_optional_storage(
+    const struct evmc_result* result)
+{
+    return (const union evmc_result_optional_storage*)&result->create_address;
+}
+
 /** Returns text representation of the ::evmc_status_code. */
 static inline const char* evmc_status_code_to_string(enum evmc_status_code status_code)
 {
