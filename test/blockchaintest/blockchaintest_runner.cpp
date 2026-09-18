@@ -2,160 +2,92 @@
 // Copyright 2023 The evmone Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-#include "../state/mpt_hash.hpp"
-#include "../state/requests.hpp"
-#include "../state/rlp.hpp"
-#include "../state/system_contracts.hpp"
-#include "../test/statetest/statetest.hpp"
-#include "blockchaintest.hpp"
+#include "blockchaintest_runner.hpp"
 #include <gtest/gtest.h>
+#include <test/state/errors.hpp>
+#include <test/state/ethash_difficulty.hpp>
+#include <test/state/requests.hpp>
+#include <test/utils/block_transition.hpp>
+#include <test/utils/mpt_hash.hpp>
+#include <test/utils/rlp.hpp>
+#include <test/utils/rlp_encode.hpp>
+#include <test/utils/statetest.hpp>
 
 namespace evmone::test
 {
 
-struct RejectedTransaction
-{
-    hash256 hash;
-    size_t index;
-    std::string message;
-};
-
-struct TransitionResult
-{
-    std::vector<state::TransactionReceipt> receipts;
-    std::vector<RejectedTransaction> rejected;
-    std::optional<std::vector<state::Requests>> requests;
-    int64_t gas_used;
-    state::BloomFilter bloom;
-    int64_t blob_gas_left;
-    TestState block_state;
-};
+/// The CL gossip protocol constraint of the maximum block size (EIP-7934).
+constexpr size_t MAX_BLOCK_SIZE = 10 * 1024 * 1024;
+/// The safety margin for beacon block content (EIP-7934).
+constexpr size_t SAFETY_MARGIN = 2 * 1024 * 1024;
+/// The maximum EL block size when RLP encoded (EIP-7934).
+constexpr size_t MAX_RLP_BLOCK_SIZE = MAX_BLOCK_SIZE - SAFETY_MARGIN;
 
 namespace
 {
-TransitionResult apply_block(const TestState& state, evmc::VM& vm, const state::BlockInfo& block,
-    const state::BlockHashes& block_hashes, const std::vector<state::Transaction>& txs,
-    evmc_revision rev, std::optional<int64_t> block_reward)
+/// Validates block-level validity unrelated to individual transactions.
+///
+/// Returns an empty error_code if the block is valid, otherwise the specific validation error.
+std::error_code validate_block(evmc_revision rev, state::BlobParams blob_params,
+    const TestBlock& test_block, const BlockHeader* parent_header, bool parent_has_ommers) noexcept
 {
-    TestState block_state(state);
-    system_call_block_start(block_state, block, block_hashes, rev, vm);
+    using namespace state;
 
-    std::vector<state::Log> txs_logs;
-    int64_t block_gas_left = block.gas_limit;
-    auto blob_gas_left = static_cast<int64_t>(block.blob_gas_used.value_or(0));
-
-    std::vector<RejectedTransaction> rejected_txs;
-    std::vector<state::TransactionReceipt> receipts;
-
-    int64_t cumulative_gas_used = 0;
-
-    for (size_t i = 0; i < txs.size(); ++i)
-    {
-        const auto& tx = txs[i];
-
-        const auto computed_tx_hash = keccak256(rlp::encode(tx));
-        auto res = test::transition(
-            block_state, block, block_hashes, tx, rev, vm, block_gas_left, blob_gas_left);
-
-        if (holds_alternative<std::error_code>(res))
-        {
-            const auto ec = std::get<std::error_code>(res);
-            rejected_txs.push_back({computed_tx_hash, i, ec.message()});
-        }
-        else
-        {
-            auto& receipt = get<state::TransactionReceipt>(res);
-
-            const auto& tx_logs = receipt.logs;
-
-            txs_logs.insert(txs_logs.end(), tx_logs.begin(), tx_logs.end());
-            cumulative_gas_used += receipt.gas_used;
-            receipt.cumulative_gas_used = cumulative_gas_used;
-            if (rev < EVMC_BYZANTIUM)
-                receipt.post_state = state::mpt_hash(block_state);
-
-            block_gas_left -= receipt.gas_used;
-            blob_gas_left -= static_cast<int64_t>(tx.blob_gas_used());
-            receipts.emplace_back(std::move(receipt));
-        }
-    }
-
-    auto requests = [&]() -> std::optional<std::vector<state::Requests>> {
-        std::vector<state::Requests> collected;
-
-        if (rev >= EVMC_PRAGUE)
-        {
-            auto opt_deposits = collect_deposit_requests(receipts);
-            if (!opt_deposits.has_value())
-                return std::nullopt;
-            collected.emplace_back(std::move(*opt_deposits));
-        }
-
-        auto requests_result = system_call_block_end(block_state, block, block_hashes, rev, vm);
-        if (!requests_result.has_value())
-            return std::nullopt;
-        std::ranges::move(*requests_result, std::back_inserter(collected));
-
-        return collected;
-    }();
-
-    finalize(block_state, rev, block.coinbase, block_reward, block.ommers, block.withdrawals);
-
-    const auto bloom = compute_bloom_filter(receipts);
-
-    return {std::move(receipts), std::move(rejected_txs), std::move(requests), cumulative_gas_used,
-        bloom, blob_gas_left, std::move(block_state)};
-}
-
-bool validate_block(
-    evmc_revision rev, const TestBlock& test_block, const BlockHeader* parent_header) noexcept
-{
-    // NOTE: includes only block validity unrelated to individual txs. See `apply_block`.
-
-    // Fail if parent header was not found.
+    // Fail if parent header was not found: the block references a parent that is neither the
+    // genesis nor any previously-accepted block (an unknown or rejected parent).
     if (parent_header == nullptr)
-        return false;
+        return make_error_code(INVALID_BLOCK_PARENT);
+
+    if (test_block.block_info.number != parent_header->block_number + 1)
+        return make_error_code(INVALID_BLOCK_NUMBER);
 
     if (test_block.block_info.gas_used > test_block.block_info.gas_limit)
-        return false;
+        return make_error_code(INCORRECT_BLOCK_FORMAT);
 
     // Some tests have gas limit at INT64_MAX, so we cast to uint64_t to avoid overflow.
     const auto parent_header_gas_limit_u64 = static_cast<uint64_t>(parent_header->gas_limit);
     const auto test_block_gas_limit_u64 = static_cast<uint64_t>(test_block.block_info.gas_limit);
     if (test_block_gas_limit_u64 >=
         parent_header_gas_limit_u64 + parent_header_gas_limit_u64 / 1024)
-        return false;
+        return make_error_code(INVALID_GASLIMIT);
     if (test_block_gas_limit_u64 <=
         parent_header_gas_limit_u64 - parent_header_gas_limit_u64 / 1024)
-        return false;
+        return make_error_code(INVALID_GASLIMIT);
 
     // Block gas limit minimum from Yellow Paper.
     if (test_block.block_info.gas_limit < 5000)
-        return false;
+        return make_error_code(INVALID_GASLIMIT);
+
+    // FIXME: Some tests have timestamp not fitting into int64_t, type has to be uint64_t.
+    if (static_cast<uint64_t>(test_block.block_info.timestamp) <=
+        static_cast<uint64_t>(parent_header->timestamp))
+        return make_error_code(INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT);
+
+    if (test_block.block_info.difficulty !=
+        calculate_difficulty(parent_header->difficulty, parent_has_ommers, parent_header->timestamp,
+            test_block.block_info.timestamp, test_block.block_info.number, rev))
+        return make_error_code(INCORRECT_BLOCK_FORMAT);
 
     if (rev >= EVMC_PARIS && !test_block.block_info.ommers.empty())
-        return false;
-
+        return make_error_code(INCORRECT_BLOCK_FORMAT);
 
     for (const auto& ommer : test_block.block_info.ommers)
     {
         // Check that ommer block number difference with current block is within allowed range.
         // https://github.com/ethereum/execution-specs/blob/ee73be5c4d83a2e3c358bd14990878002e52ba9e/src/ethereum/gray_glacier/fork.py#L623
         if (ommer.delta < 1 || ommer.delta > 6)
-            return false;
+            return make_error_code(INCORRECT_BLOCK_FORMAT);
     }
 
-    // FIXME: Some tests have timestamp not fitting into int64_t, type has to be uint64_t.
-    if (static_cast<uint64_t>(test_block.block_info.timestamp) <=
-        static_cast<uint64_t>(parent_header->timestamp))
-        return false;
+    if (test_block.block_info.extra_data.size() > 32)
+        return make_error_code(INCORRECT_BLOCK_FORMAT);
 
     if (rev >= EVMC_LONDON)
     {
-        const auto calculated_base_fee = state::calc_base_fee(
+        const auto calculated_base_fee = calc_base_fee(
             parent_header->gas_limit, parent_header->gas_used, parent_header->base_fee_per_gas);
         if (test_block.block_info.base_fee != calculated_base_fee)
-            return false;
+            return make_error_code(INVALID_BASEFEE_PER_GAS);
     }
 
     if (rev >= EVMC_CANCUN)
@@ -163,38 +95,37 @@ bool validate_block(
         // `excess_blob_gas` and `blob_gas_used` mandatory after Cancun and invalid before.
         if (!test_block.block_info.excess_blob_gas.has_value() ||
             !test_block.block_info.blob_gas_used.has_value())
-            return false;
+            return make_error_code(INCORRECT_BLOCK_FORMAT);
 
         // Check that the excess blob gas was updated correctly.
-        // According to EIP-7918 current blocks schedule (`rev`) should be used for parent base fee
+        // According to EIP-7918 current blocks params (`rev`) should be used for parent base fee
         // calculation.
         const auto parent_blob_base_fee =
-            state::compute_blob_gas_price(rev, parent_header->excess_blob_gas.value_or(0));
+            compute_blob_gas_price(blob_params, parent_header->excess_blob_gas.value_or(0));
         if (*test_block.block_info.excess_blob_gas !=
-            state::calc_excess_blob_gas(rev, parent_header->blob_gas_used.value_or(0),
+            calc_excess_blob_gas(rev, blob_params, parent_header->blob_gas_used.value_or(0),
                 parent_header->excess_blob_gas.value_or(0), parent_header->base_fee_per_gas,
                 parent_blob_base_fee))
-            return false;
-
-        // Ensure the total blob gas spent is at most equal to the limit
-        if (*test_block.block_info.blob_gas_used > state::max_blob_gas_per_block(rev))
-            return false;
+            return make_error_code(INCORRECT_EXCESS_BLOB_GAS);
     }
     else
     {
         if (test_block.block_info.excess_blob_gas.has_value() ||
             test_block.block_info.blob_gas_used.has_value())
-            return false;
+            return make_error_code(INCORRECT_BLOCK_FORMAT);
     }
 
     // Block is invalid if some of the withdrawal fields failed to be parsed.
     if (!test_block.withdrawals_parse_success)
-        return false;
+        return make_error_code(INCORRECT_BLOCK_FORMAT);
 
-    return true;
+    if (rev >= EVMC_OSAKA && test_block.rlp_size > MAX_RLP_BLOCK_SIZE)
+        return make_error_code(RLP_BLOCK_LIMIT_EXCEEDED);
+
+    return {};
 }
 
-std::optional<int64_t> mining_reward(evmc_revision rev) noexcept
+std::optional<uint64_t> mining_reward(evmc_revision rev) noexcept
 {
     if (rev < EVMC_BYZANTIUM)
         return 5'000000000'000000000;
@@ -236,7 +167,8 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
     for (size_t case_index = 0; case_index != tests.size(); ++case_index)
     {
         const auto& c = tests[case_index];
-        SCOPED_TRACE(std::string{evmc::to_string(c.rev.get_revision(0))} + '/' +
+        const auto rev_schedule = to_rev_schedule(c.network);
+        SCOPED_TRACE(std::string{evmc::to_string(rev_schedule.get_revision(0))} + '/' +
                      std::to_string(case_index) + '/' + c.name);
 
         // Validate the genesis block header.
@@ -245,7 +177,7 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
         EXPECT_EQ(c.genesis_block_header.transactions_root, state::EMPTY_MPT_HASH);
         EXPECT_EQ(c.genesis_block_header.receipts_root, state::EMPTY_MPT_HASH);
         EXPECT_EQ(c.genesis_block_header.withdrawal_root,
-            c.rev.get_revision(c.genesis_block_header.timestamp) >= EVMC_SHANGHAI ?
+            rev_schedule.get_revision(c.genesis_block_header.timestamp) >= EVMC_SHANGHAI ?
                 state::EMPTY_MPT_HASH :
                 bytes32{});
         EXPECT_EQ(c.genesis_block_header.logs_bloom, bytes_view{state::BloomFilter{}});
@@ -256,12 +188,14 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
         struct BlockData
         {
             const BlockHeader* header;
+            bool has_ommers = false;
             TestState post_state;
             intx::uint256 total_difficulty;
         };
         std::unordered_map<hash256, BlockData> block_data{{{c.genesis_block_header.hash,
-            {&c.genesis_block_header, c.pre_state, c.genesis_block_header.difficulty}}}};
+            {&c.genesis_block_header, false, c.pre_state, c.genesis_block_header.difficulty}}}};
         const auto* canonical_state = &c.pre_state;
+        hash256 canonical_tip_hash = c.genesis_block_header.hash;
         intx::uint256 max_total_difficulty = c.genesis_block_header.difficulty;
 
         for (size_t i = 0; i < c.test_blocks.size(); ++i)
@@ -272,41 +206,55 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
             const auto parent_data_it = block_data.find(test_block.block_info.parent_hash);
             const auto* parent_header =
                 parent_data_it != block_data.end() ? parent_data_it->second.header : nullptr;
+            const auto parent_has_ommers =
+                parent_data_it != block_data.end() && parent_data_it->second.has_ommers;
 
-            const auto rev = c.rev.get_revision(bi.timestamp);
+            const auto rev = rev_schedule.get_revision(bi.timestamp);
+            const auto blob_params = get_blob_params(c.network, c.blob_schedule, bi.timestamp);
+            const auto blob_gas_limit =
+                static_cast<int64_t>(state::max_blob_gas_per_block(blob_params));
 
             SCOPED_TRACE(std::string{evmc::to_string(rev)} + '/' + std::to_string(case_index) +
                          '/' + c.name + '/' + std::to_string(test_block.block_info.number));
 
-            if (test_block.valid)
+            const auto block_error =
+                validate_block(rev, blob_params, test_block, parent_header, parent_has_ommers);
+
+            if (test_block.expected_exception.empty())
             {
-                ASSERT_TRUE(validate_block(rev, test_block, parent_header))
-                    << "Expected block to be valid (validate_block)";
+                ASSERT_FALSE(block_error)
+                    << "Expected block to be valid (validate_block): " << block_error.message();
 
                 // Block being valid guarantees its parent was found.
                 assert(parent_data_it != block_data.end());
                 const auto& pre_state = parent_data_it->second.post_state;
 
                 auto res = apply_block(pre_state, vm, bi, block_hashes, test_block.transactions,
-                    rev, mining_reward(rev));
+                    rev, blob_gas_limit, {.block_reward = mining_reward(rev)});
 
-                ASSERT_TRUE(res.requests.has_value());
+                ASSERT_FALSE(res.requests_error);
 
                 block_hashes[test_block.expected_block_header.block_number] =
                     test_block.expected_block_header.hash;
                 const auto [inserted_it, _] = block_data.insert({test_block.block_info.hash,
-                    {&test_block.expected_block_header, std::move(res.block_state),
-                        parent_data_it->second.total_difficulty +
-                            test_block.block_info.difficulty}});
+                    {
+                        .header = &test_block.expected_block_header,
+                        .has_ommers = !test_block.block_info.ommers.empty(),
+                        .post_state = std::move(res.block_state),
+                        .total_difficulty = parent_data_it->second.total_difficulty +
+                                            test_block.block_info.difficulty,
+                    }});
                 if (inserted_it->second.total_difficulty >= max_total_difficulty)
                 {
                     canonical_state = &inserted_it->second.post_state;
+                    canonical_tip_hash = test_block.expected_block_header.hash;
                     max_total_difficulty = inserted_it->second.total_difficulty;
                 }
 
                 EXPECT_TRUE(res.rejected.empty())
                     << "Invalid transaction in block expected to be valid";
-                EXPECT_TRUE(res.blob_gas_left == 0)
+                EXPECT_EQ(blob_gas_limit - res.blob_gas_left,
+                    static_cast<int64_t>(bi.blob_gas_used.value_or(0)))
                     << "Transactions used more or less blob gas than expected in block header";
 
                 EXPECT_EQ(state::mpt_hash(inserted_it->second.post_state),
@@ -324,7 +272,7 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
                     state::mpt_hash(res.receipts), test_block.expected_block_header.receipts_root);
                 if (rev >= EVMC_PRAGUE)
                 {
-                    EXPECT_EQ(calculate_requests_hash(*res.requests),
+                    EXPECT_EQ(calculate_requests_hash(res.requests),
                         test_block.expected_block_header.requests_hash);
                 }
                 EXPECT_EQ(res.gas_used, test_block.expected_block_header.gas_used);
@@ -333,20 +281,55 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
             }
             else
             {
-                if (!validate_block(rev, test_block, parent_header))
+                if (block_error)
+                {
+                    // Block correctly rejected at validation; verify the reason matches the
+                    // fixture's expected exception. The error message is the `BlockException`
+                    // constant; `expected_exception` may list `|`-separated alternatives, so a
+                    // substring search suffices as long as no constant name is a substring of
+                    // another (true for the constants evmone produces).
+                    EXPECT_NE(test_block.expected_exception.find(block_error.message()),
+                        std::string::npos)
+                        << "Block invalidity reason mismatch: got " << block_error.message()
+                        << ", expected " << test_block.expected_exception;
                     continue;
+                }
 
                 // Block being valid guarantees its parent was found.
                 assert(parent_data_it != block_data.end());
                 const auto& pre_state = parent_data_it->second.post_state;
 
-                const auto res = apply_block(pre_state, vm, bi, block_hashes,
-                    test_block.transactions, rev, mining_reward(rev));
-                if (!res.requests.has_value())
-                    continue;
+                const auto res =
+                    apply_block(pre_state, vm, bi, block_hashes, test_block.transactions, rev,
+                        blob_gas_limit, {.block_reward = mining_reward(rev)});
                 if (!res.rejected.empty())
+                {
+                    // Check if EEST expects transaction-level exception (ignore "legacy" names).
+                    // `expected_exception` may list `|`-separated alternatives (and a tx-level
+                    // alternative can appear after a block-level one), so search for a
+                    // `TransactionException.` anywhere rather than only at the start.
+                    if (test_block.expected_exception.find("Exception.") != std::string::npos)
+                    {
+                        EXPECT_NE(test_block.expected_exception.find("TransactionException."),
+                            std::string::npos)
+                            << "Transaction-level invalidity mismatch: got "
+                            << res.rejected.front().message << ", expected "
+                            << test_block.expected_exception;
+                    }
                     continue;
-                if (res.blob_gas_left != 0)
+                }
+                if (res.requests_error)
+                {
+                    // Requests collection failure; verify the reason matches (same
+                    // `BlockException.*` substring match as the block validation errors above).
+                    EXPECT_NE(test_block.expected_exception.find(res.requests_error.message()),
+                        std::string::npos)
+                        << "Block invalidity reason mismatch: got " << res.requests_error.message()
+                        << ", expected " << test_block.expected_exception;
+                    continue;
+                }
+                if (blob_gas_limit - res.blob_gas_left !=
+                    static_cast<int64_t>(bi.blob_gas_used.value_or(0)))
                     continue;
 
                 if (state::mpt_hash(res.block_state) != test_block.expected_block_header.state_root)
@@ -360,7 +343,7 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
                     continue;
                 if (state::mpt_hash(res.receipts) != test_block.expected_block_header.receipts_root)
                     continue;
-                if (rev >= EVMC_PRAGUE && calculate_requests_hash(*res.requests) !=
+                if (rev >= EVMC_PRAGUE && calculate_requests_hash(res.requests) !=
                                               test_block.expected_block_header.requests_hash)
                     continue;
                 if (res.gas_used != test_block.expected_block_header.gas_used)
@@ -372,6 +355,9 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
                 EXPECT_TRUE(false) << "Expected block to be invalid but resulted valid";
             }
         }
+        EXPECT_EQ(canonical_tip_hash, c.expectation.last_block_hash)
+            << "Canonical chain tip differs from expected `lastblockhash`";
+
         const auto expected_post_hash =
             std::holds_alternative<TestState>(c.expectation.post_state) ?
                 state::mpt_hash(std::get<TestState>(c.expectation.post_state)) :
@@ -384,7 +370,6 @@ void run_blockchain_tests(std::span<const BlockchainTest> tests, evmc::VM& vm)
                            print_state(std::get<TestState>(c.expectation.post_state)) :
                        "");
     }
-    // TODO: Add difficulty calculation verification.
 }
 
 }  // namespace evmone::test

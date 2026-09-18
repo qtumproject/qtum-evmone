@@ -27,14 +27,20 @@ target_sources(
     pairing/field_template.hpp
     modexp.hpp
     modexp.cpp
+    mulmod.hpp
+    mulmod.cpp
     ripemd160.hpp
     ripemd160.cpp
     secp256k1.hpp
     secp256k1.cpp
+    secp256r1.hpp
+    secp256r1.cpp
     sha256.hpp
     sha256.cpp
     kzg.hpp
     kzg.cpp
+    kzg_precomputed_lines.hpp
+    kzg_precomputed_lines.cpp
 )
 
 add_standalone_library(evmone_precompiles)

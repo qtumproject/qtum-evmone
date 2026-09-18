@@ -2,7 +2,7 @@
 # Copyright 2024 The evmone Authors.
 # SPDX-License-Identifier: Apache-2.0
 
-# Integration tests for evmone-t8n.
+# Integration tests for the `evmone t8n` subcommand.
 
 set(PREFIX ${PREFIX}/t8n)
 
@@ -12,7 +12,7 @@ add_test(
     NAME ${PREFIX}/${TEST_CASE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/base_fee
     COMMAND
-    evmone-t8n
+    evmone-cli t8n
     --state.fork London
     --state.reward 0
     --state.chainid 1
@@ -46,7 +46,7 @@ add_test(
     NAME ${PREFIX}/${TEST_CASE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/base_fee
     COMMAND
-    evmone-t8n
+    evmone-cli t8n
     --state.fork Berlin
     --state.reward 0
     --state.chainid 1
@@ -76,7 +76,7 @@ add_test(
     NAME ${PREFIX}/${TEST_CASE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_CASE}
     COMMAND
-    evmone-t8n
+    evmone-cli t8n
     --state.fork Cancun
     --state.reward 0
     --state.chainid 1
@@ -86,7 +86,6 @@ add_test(
     --output.basedir ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}
     --output.result out.json
     --output.alloc outAlloc.json
-    --output.errorlog error.json
     --opcode.count opcodes.json
 )
 set_tests_properties(${PREFIX}/${TEST_CASE} PROPERTIES FIXTURES_REQUIRED ${TEST_CASE})
@@ -157,7 +156,7 @@ add_test(
     NAME ${PREFIX}/${TEST_CASE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_CASE}
     COMMAND
-    evmone-t8n
+    evmone-cli t8n
     --state.fork Prague
     --state.reward 0
     --state.chainid 1
@@ -185,6 +184,127 @@ set_tests_properties(
     FIXTURES_CLEANUP ${TEST_CASE}
     PASS_REGULAR_EXPRESSION ${EXPECTED_OUT}
 )
+
+set(TEST_CASE osaka_blob_schedule)
+
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_CASE}
+    COMMAND
+    evmone-cli t8n
+    --state.fork Osaka
+    --state.reward 0
+    --state.chainid 1
+    --input.alloc alloc.json
+    --input.txs txs.json
+    --input.env env.json
+    --input.blobParams blobParams.json
+    --output.basedir ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}
+    --output.result out.json
+)
+set_tests_properties(${PREFIX}/${TEST_CASE} PROPERTIES FIXTURES_REQUIRED ${TEST_CASE})
+
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}/out.json
+    COMMAND ${CMAKE_COMMAND} -E cat ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}/out.json
+)
+string(
+    JOIN ".*" EXPECTED_OUT
+    # resolved blob parameters were read for Osaka
+    [=["cumulativeGasUsed": ]=]
+)
+set_tests_properties(
+    ${PREFIX}/${TEST_CASE}/out.json PROPERTIES
+    FIXTURES_CLEANUP ${TEST_CASE}
+    PASS_REGULAR_EXPRESSION ${EXPECTED_OUT}
+)
+
+set(TEST_CASE cancun_create_tx_trace)
+
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/cancun_create_tx
+    COMMAND
+    evmone-cli t8n
+    --state.fork Cancun
+    --state.reward 0
+    --state.chainid 1
+    --input.alloc alloc.json
+    --input.txs txs.json
+    --input.env env.json
+    --output.basedir ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}
+    --output.result out.json
+    --trace
+)
+set_tests_properties(${PREFIX}/${TEST_CASE} PROPERTIES FIXTURES_REQUIRED ${TEST_CASE})
+
+# The first tx in this fixture is a successful CREATE with bytecode 0x60015ff3
+# (PUSH1 0x01 PUSH0 RETURN). Its trace must be written to a per-tx file whose
+# name includes the computed tx hash.
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}/trace-0.jsonl
+    COMMAND ${CMAKE_COMMAND} -E cat
+    ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}/trace-0-0x03141f8608bc78c8b8fb23275febeb6bf40bd348bd68b703a92bf2ce8ac8bdc0.jsonl
+)
+set_tests_properties(
+    ${PREFIX}/${TEST_CASE}/trace-0.jsonl PROPERTIES
+    FIXTURES_CLEANUP ${TEST_CASE}
+    PASS_REGULAR_EXPRESSION [=["opName":"PUSH1".*"opName":"PUSH0".*"opName":"RETURN"]=]
+)
+
+
+add_test(NAME ${PREFIX}/version COMMAND evmone-cli --version)
+set_tests_properties(
+    ${PREFIX}/version PROPERTIES PASS_REGULAR_EXPRESSION "evmone")
+
+add_test(NAME ${PREFIX}/bad_fork COMMAND evmone-cli t8n --state.fork NoSuchRev)
+set_tests_properties(
+    ${PREFIX}/bad_fork PROPERTIES PASS_REGULAR_EXPRESSION "unknown revision")
+
+
+# Check if chainid max value is accepted.
+add_test(
+    NAME ${PREFIX}/chainid_hex_max
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/base_fee
+    COMMAND
+    evmone-cli t8n
+    --state.fork Paris
+    --state.chainid 0xffffffffffffffff
+    --input.env env.json
+)
+
+
+# Exercises both --output.body (RLP-encoded transactions) and
+# --state.reward -1 (pre-state-only mode that emits just the state root).
+set(TEST_CASE prague_pre_state_only)
+
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/prague_empty_requests
+    COMMAND
+    evmone-cli t8n
+    --state.fork Prague
+    --state.reward -1
+    --state.chainid 1
+    --input.alloc alloc.json
+    --input.txs txs.json
+    --input.env env.json
+    --output.basedir ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}
+    --output.result out.json
+    --output.body body.rlp
+)
+set_tests_properties(${PREFIX}/${TEST_CASE} PROPERTIES FIXTURES_REQUIRED ${TEST_CASE})
+
+add_test(
+    NAME ${PREFIX}/${TEST_CASE}/body.rlp
+    COMMAND ${CMAKE_COMMAND} -E cat ${CMAKE_CURRENT_BINARY_DIR}/${TEST_CASE}/body.rlp
+)
+set_tests_properties(
+    ${PREFIX}/${TEST_CASE}/body.rlp PROPERTIES
+    FIXTURES_CLEANUP ${TEST_CASE}
+    PASS_REGULAR_EXPRESSION "^0x[0-9a-f]+"
+)
+
 
 get_directory_property(ALL_TESTS TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES ENVIRONMENT LLVM_PROFILE_FILE=${CMAKE_BINARY_DIR}/integration-%p.profraw)

@@ -1,35 +1,35 @@
 version: 2.1
 orbs:
-  codecov: codecov/codecov@5.4.3
+  codecov: codecov/codecov@6.0.0
   win: circleci/windows@5.0
 
 executors:
   lint:
     docker:
-      - image: ethereum/cpp-build-env:24-lint
+      - image: chfast/cpp-build-env:25-lint
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-gcc-latest:
     docker:
-      - image: ethereum/cpp-build-env:24-gcc-14
+      - image: chfast/cpp-build-env:25-gcc-15
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-gcc-multilib:
     docker:
-      - image: ethereum/cpp-build-env:24-gcc-14-multilib
+      - image: chfast/cpp-build-env:25-gcc-15-multilib
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-clang-xlarge:
     docker:
-      - image: ethereum/cpp-build-env:24-clang-20
+      - image: chfast/cpp-build-env:25-clang-21
     resource_class: xlarge
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 8
   linux-clang-selfhosted:
     docker:
-      - image: ethereum/cpp-build-env:24-clang-20
+      - image: chfast/cpp-build-env:25-clang-21
     resource_class: ipsilon/ha9x
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 16
@@ -41,33 +41,35 @@ executors:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-clang-latest:
     docker:
-      - image: ethereum/cpp-build-env:24-clang-20
+      - image: chfast/cpp-build-env:25-clang-21
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 4
   linux-clang-min:
     docker:
-      - image: ethereum/cpp-build-env:20-clang-16
+      - image: ethereum/cpp-build-env:21-clang-17
     resource_class: small
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   linux-base:
     docker:
       - image: cimg/base:edge-22.04
-    resource_class: small
+    resource_class: medium
     environment:
       CMAKE_BUILD_PARALLEL_LEVEL: 2
   macos:
-    resource_class:  macos.m1.medium.gen1
+    resource_class: m4pro.medium
+    macos:
+      xcode: 26.5
+    environment:
+      # m4pro.medium has 6 CPUs, but 12 works better.
+      CMAKE_BUILD_PARALLEL_LEVEL: 12
+  macos-xcode-min:
+    resource_class: m4pro.medium
     macos:
       xcode: 16.4.0
     environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 6
-  macos-xcode-min:
-    resource_class: macos.m1.medium.gen1
-    macos:
-      xcode: 16.0.0
-    environment:
-      CMAKE_BUILD_PARALLEL_LEVEL: 6
+      # m4pro.medium has 6 CPUs, but 12 works better.
+      CMAKE_BUILD_PARALLEL_LEVEL: 12
 
 commands:
   install_cmake:
@@ -79,7 +81,8 @@ commands:
           name: "Install CMake <<parameters.version>>"
           working_directory: /usr/local
           command: |
-            curl -L https://github.com/Kitware/CMake/releases/download/v<<parameters.version>>/cmake-<<parameters.version>>-linux-x86_64.tar.gz | sudo tar -xz --strip=1
+            curl -L --retry 3 -C - --output-dir /tmp -O https://github.com/Kitware/CMake/releases/download/v<<parameters.version>>/cmake-<<parameters.version>>-linux-x86_64.tar.gz
+            sudo tar -xz --strip=1 -f /tmp/cmake-*.tar.gz
 
   install_riscv_toolchain:
     steps:
@@ -87,10 +90,8 @@ commands:
           name: "Install RISC-V Toolchain"
           working_directory: /usr/local
           command: |
-            curl -L https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2025.01.20/riscv32-glibc-ubuntu-24.04-llvm-nightly-2025.01.20-nightly.tar.xz > /tmp/riscv.tar.xz 
-            sudo cmake -E tar xJ /tmp/riscv.tar.xz
-            # Fixup misplaced libunwind.
-            (cd riscv/sysroot/lib && sudo ln -s ../../lib/riscv32-unknown-linux-gnu/libunwind.so.1)
+            curl -L --retry 3 -C - --output-dir /tmp -O https://github.com/riscv-collab/riscv-gnu-toolchain/releases/download/2026.01.01/riscv32-glibc-ubuntu-24.04-llvm.tar.xz
+            sudo cmake -E tar xJ /tmp/riscv*.tar.xz
 
   checkout_submodules:
     steps:
@@ -146,8 +147,37 @@ commands:
           working_directory: ~/spec-tests
           command: |
             find . -delete
-            curl -L https://github.com/<<parameters.repo>>/releases/download/<<parameters.release>>/fixtures_<<parameters.fixtures_suffix>>.tar.gz | tar -xz
+            curl -L --retry 3 -C - --output-dir /tmp -O https://github.com/<<parameters.repo>>/releases/download/<<parameters.release>>/fixtures_<<parameters.fixtures_suffix>>.tar.gz
+            tar -xzf /tmp/fixtures_<<parameters.fixtures_suffix>>.tar.gz
             ls -l
+
+  run_execution_spec_tests:
+    parameters:
+      release:
+        type: string
+      fixtures_suffix:
+        type: string
+      filter:
+        type: string
+        default: "*"
+    steps:
+      - download_execution_spec_tests:
+          release: <<parameters.release>>
+          fixtures_suffix: <<parameters.fixtures_suffix>>
+      - run:
+          name: "Execution spec tests (<<parameters.release>>, state_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/build
+          command: >
+            LLVM_PROFILE_FILE=state_tests.profraw
+            bin/evmone-statetest --gtest_filter='<<parameters.filter>>' ~/spec-tests/fixtures/state_tests
+      - run:
+          name: "Execution spec tests (<<parameters.release>>, blockchain_tests)"
+          # Tests for in-development EVM revision currently passing.
+          working_directory: ~/build
+          command: >
+            LLVM_PROFILE_FILE=blockchain_tests.profraw
+            bin/evmone-blockchaintest --gtest_filter='<<parameters.filter>>' ~/spec-tests/fixtures/blockchain_tests
 
   build:
     description: "Build"
@@ -183,7 +213,7 @@ commands:
             if [ "$TOOLCHAIN" ]; then
               export toolchain_option="-DTOOLCHAIN=$TOOLCHAIN"
             fi
-            cmake ../project $toolchain_option -DCMAKE_INSTALL_PREFIX=~/install -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DEVMONE_TESTING=ON $CMAKE_OPTIONS
+            cmake ../project $toolchain_option -DCMAKE_INSTALL_PREFIX=~/install -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCMAKE_COMPILE_WARNING_AS_ERROR=TRUE -DEVMONE_TESTING=ON $CMAKE_OPTIONS
       - save_cache:
           name: "Save Hunter cache"
           key: *hunter-cache-key
@@ -223,13 +253,23 @@ commands:
 
   collect_coverage_clang:
     description: "Collect coverage data (clang)"
+    parameters:
+      flags:
+        type: string
+      ignore_filename_regex:
+        type: string
+        default: ""
+      binaries:
+        type: string
+        default: evmone evmone-unittests evmone-statetest evmone-blockchaintest
     steps:
       - run:
-          name: "Collect coverage data (clang)"
+          name: "Collect coverage data (clang, <<parameters.flags>>)"
           working_directory: ~/build
           command: |
-            OBJECTS="-object bin/evmone-unittests -object bin/evmone-statetest -object bin/evmone-blockchaintest -object bin/evmone-t8n"
-            ARGS="lib/libevmone.so $OBJECTS -Xdemangler llvm-cxxfilt -instr-profile=evmone.profdata -ignore-filename-regex=include/evmc"
+            IGNORE_FILENAME_REGEX='include/evmc<<#parameters.ignore_filename_regex>>|<<parameters.ignore_filename_regex>><</parameters.ignore_filename_regex>>'
+            OBJECTS=$(printf -- '-object bin/%s ' <<parameters.binaries>>)
+            ARGS="lib/libevmone.so $OBJECTS -Xdemangler llvm-cxxfilt -instr-profile=evmone.profdata -ignore-filename-regex=$IGNORE_FILENAME_REGEX"
 
             rm -rf ~/coverage
             mkdir ~/coverage
@@ -238,20 +278,13 @@ commands:
             
             llvm-cov export -format=lcov $ARGS -skip-expansions > ~/coverage/coverage.lcov
             
-            llvm-cov show $ARGS -format=html -show-line-counts-or-regions -show-mcdc -o ~/coverage/html
+            llvm-cov show $ARGS -format=html -show-line-counts-or-regions -show-mcdc -show-mcdc-summary -show-branches=count -o ~/coverage/html
 
             llvm-cov report $ARGS -show-mcdc-summary > ~/coverage/report.txt
             llvm-cov report $ARGS -use-color -show-mcdc-summary
       - store_artifacts:
           path: ~/coverage
-          destination: coverage
-
-  upload_coverage:
-    description: "Upload coverage data"
-    parameters:
-      flags:
-        type: string
-    steps:
+          destination: <<parameters.flags>>
       - codecov/upload:
           plugins: noop
           disable_search: true
@@ -293,7 +326,7 @@ jobs:
           name: "Check code format"
           command: |
             clang-format --version
-            find include lib test -name '*.hpp' -o -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
+            find evmc include lib test tools -name '*.hpp' -o -name '*.cpp' -o -name '*.h' -o -name '*.c' | xargs clang-format -i
             git diff --color --exit-code
       - run:
           name: "Check spelling"
@@ -358,7 +391,8 @@ jobs:
 
   deploy:
     docker:
-      - image: cimg/go
+      - image: cimg/go:1.25.1
+    resource_class: small
     steps:
       - run:
           name: "Install GHR"
@@ -383,29 +417,21 @@ jobs:
       CMAKE_OPTIONS: -DCOVERAGE=1
     steps:
       - build
-      - download_execution_spec_tests:
-          release: v5.1.0
-          # develop includes stable
-          fixtures_suffix: develop
-      - run:
-          name: "Execution spec tests (develop, state_tests)"
-          # Tests for in-development EVM revision currently passing.
-          working_directory: ~/build
-          command: >
-            LLVM_PROFILE_FILE=state_tests.profraw
-            bin/evmone-statetest ~/spec-tests/fixtures/state_tests
-            --gtest_filter='-osaka/eip7951_p256verify_precompiles.*'
-      - run:
-          name: "Execution spec tests (develop, blockchain_tests)"
-          # Tests for in-development EVM revision currently passing.
-          working_directory: ~/build
-          command: >
-            LLVM_PROFILE_FILE=blockchain_tests.profraw
-            bin/evmone-blockchaintest ~/spec-tests/fixtures/blockchain_tests
-            --gtest_filter='-osaka/eip7918_blob_reserve_price.*:osaka/eip7934_block_rlp_limit.*:osaka/eip7951_p256verify_precompiles.*'
-      - collect_coverage_clang
-      - upload_coverage:
+      - run_execution_spec_tests:
+          release: bal@v5.6.1
+          fixtures_suffix: bal
+          filter: "-for_amsterdam/*:for_bpo2toamsterdamattime15k/*"
+      - collect_coverage_clang:
           flags: eest-develop
+          ignore_filename_regex: lib/evmone/(advanced|cpu_check|eof|lru_cache|tracing|vm)|test/(experimental|unittests)
+          binaries: evmone-statetest evmone-blockchaintest
+      - run_execution_spec_tests:
+          release: v5.4.0
+          fixtures_suffix: develop
+      - collect_coverage_clang:
+          flags: eest-stable
+          ignore_filename_regex: lib/evmone/(advanced|cpu_check|eof|lru_cache|tracing|vm)|test/(experimental|unittests)
+          binaries: evmone-statetest evmone-blockchaintest
 
   ethereum-tests:
     executor: linux-clang-latest
@@ -418,16 +444,10 @@ jobs:
       - download_execution_tests:
           rev: v17.2
       - run:
-          name: "State tests"
-          working_directory: ~/build
-          command: >
-            bin/evmone-statetest
-            ~/tests/LegacyTests/Cancun/GeneralStateTests
-            ~/tests/LegacyTests/Constantinople/GeneralStateTests
-      - run:
           name: "Blockchain tests (ValidBlocks)"
           working_directory: ~/build
           command: >
+            LLVM_PROFILE_FILE=blockchain_tests_valid.profraw
             bin/evmone-blockchaintest
             --gtest_filter='-bcValidBlockTest.SimpleTx3LowS'
             ~/tests/BlockchainTests/ValidBlocks
@@ -436,13 +456,31 @@ jobs:
           name: "Blockchain tests (InvalidBlocks)"
           working_directory: ~/build
           command: >
+            LLVM_PROFILE_FILE=blockchain_tests_invalid.profraw
             bin/evmone-blockchaintest
             --gtest_filter='-bc4895-withdrawals.shanghaiWithoutWithdrawalsRLP:bcInvalidHeaderTest.*:bcUncleHeaderValidity.gasLimitTooLowExactBound'
             ~/tests/BlockchainTests/InvalidBlocks
             ~/tests/LegacyTests/Cancun/BlockchainTests/InvalidBlocks
-      - collect_coverage_clang
-      - upload_coverage:
+      - collect_coverage_clang:
           flags: eest-legacy
+
+  precompiles-libsecp256k1:
+    executor: linux-clang-latest
+    environment:
+      BUILD_TYPE: Release
+      CMAKE_OPTIONS: -DCOVERAGE=1 -DEVMONE_PRECOMPILES_LIBSECP256K1=1
+    steps:
+      - build
+      - download_execution_spec_tests:
+          release: v5.4.0
+          fixtures_suffix: stable
+      - run:
+          name: "Execution spec tests (state_tests)"
+          working_directory: ~/build
+          command: >
+            bin/evmone-statetest ~/spec-tests/fixtures/state_tests
+      - collect_coverage_clang:
+          flags: eest-libsecp256k1
 
   precompiles-gmp:
     executor: linux-clang-latest
@@ -455,38 +493,15 @@ jobs:
           command: sudo apt-get -q update && sudo apt-get -qy install libgmp-dev
       - build
       - download_execution_spec_tests:
-          release: v4.5.0
-          fixtures_suffix: develop
+          release: v5.4.0
+          fixtures_suffix: stable
       - run:
           name: "Execution spec tests (state_tests)"
           working_directory: ~/build
           command: >
             bin/evmone-statetest ~/spec-tests/fixtures/state_tests
-      - collect_coverage_clang
-      - upload_coverage:
+      - collect_coverage_clang:
           flags: eest-develop-gmp
-
-  precompiles-silkpre:
-    executor: linux-clang-latest
-    environment:
-      BUILD_TYPE: Release
-      CMAKE_OPTIONS: -DCOVERAGE=1 -DEVMONE_PRECOMPILES_SILKPRE=1
-    steps:
-      - run:
-          name: "Install GMP"
-          command: sudo apt-get -q update && sudo apt-get -qy install libgmp-dev
-      - build
-      - download_execution_tests:
-          rev: v17.1
-          legacy: false
-      - run:
-          name: "State tests"
-          working_directory: ~/build
-          command: |
-            bin/evmone-statetest ~/tests/GeneralStateTests
-      - collect_coverage_clang
-      - upload_coverage:
-          flags: eest-legacy-silkpre
 
   gcc-min:
     executor: linux-gcc-min
@@ -519,6 +534,7 @@ jobs:
     executor: linux-gcc-multilib
     environment:
       TOOLCHAIN: cxx17-32bit
+      CMAKE_OPTIONS: -DASSERTIONS=ON
     steps:
       - build
       - test
@@ -527,11 +543,14 @@ jobs:
     executor: linux-clang-selfhosted
     environment:
       TOOLCHAIN: clang-libcxx-debug
-      CMAKE_OPTIONS: -DBUILD_SHARED_LIBS=NO -DSANITIZE=address,undefined,shift-exponent,implicit-conversion,nullability
+      CMAKE_OPTIONS: -DBUILD_SHARED_LIBS=NO -DASSERTIONS=ON -DSANITIZE=address,undefined,implicit-conversion,local-bounds,nullability
       UBSAN_OPTIONS: halt_on_error=1
     steps:
       - build
       - test
+      - run_execution_spec_tests:
+          release: v5.4.0
+          fixtures_suffix: develop
 
   clang-tidy:
     executor: linux-clang-selfhosted
@@ -553,15 +572,14 @@ jobs:
     steps:
       - build
       - test
-      - collect_coverage_clang
-      - upload_coverage:
+      - collect_coverage_clang:
           flags: evmone-unittests
 
   fuzzing:
     executor: linux-clang-selfhosted
     environment:
       CMAKE_GENERATOR: Ninja
-      CMAKE_OPTIONS: -DEVMONE_FUZZING=ON
+      CMAKE_OPTIONS: -DASSERTIONS=ON -DEVMONE_FUZZING=ON
     steps:
       - build
       - restore_cache:
@@ -582,7 +600,7 @@ jobs:
     executor: macos
     environment:
       BUILD_TYPE: RelWithDebInfo
-      CMAKE_OPTIONS: -DSANITIZE=address,undefined
+      CMAKE_OPTIONS: -DASSERTIONS=ON -DSANITIZE=address,undefined
       TESTS_FILTER: unittests
     steps:
       - run:
@@ -604,7 +622,7 @@ jobs:
     executor: linux-base
     steps:
       - install_cmake:
-          version: 3.18.4
+          version: 3.22.6
       - build
       - test
 
@@ -616,13 +634,16 @@ jobs:
     steps:
       - build
       - run:
-          name: "Check evmone.so"
+          name: "Check qemu"
+          command: qemu-x86_64 --version
+      - run:
+          name: "Check evmone-cli"
           working_directory: ~/build
-          command: (! qemu-x86_64-static bin/evmc run --vm ./lib/libevmone.so,trace 6000 2>&1) | grep "CPU does not support"
+          command: (! qemu-x86_64 bin/evmone --trace run 6000 2>&1) | grep "CPU does not support"
       - run:
           name: "Check unittests"
           working_directory: ~/build
-          command: (! qemu-x86_64-static bin/evmone-unittests 2>&1) | grep "CPU does not support"
+          command: (! qemu-x86_64 bin/evmone-unittests 2>&1) | grep "CPU does not support"
 
   riscv32:
     executor: linux-gcc-latest
@@ -667,8 +688,8 @@ workflows:
               only: /^v[0-9].*/
       - execution-spec-tests
       - ethereum-tests
+      - precompiles-libsecp256k1
       - precompiles-gmp
-      - precompiles-silkpre
       - cmake-min
       - gcc-min
       - clang-min

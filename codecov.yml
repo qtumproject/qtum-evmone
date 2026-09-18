@@ -17,12 +17,12 @@ component_management:
       name: tooling
       # Code related to CLI tools, including many testing tools.
       paths:
+        - tools/**
         - test/bench/**
         - test/blockchaintest/**
         - test/eofparse/**
         - test/eoftest/**
         - test/statetest/**
-        - test/t8n/**
         - test/utils/**
     - component_id: tests
       name: tests

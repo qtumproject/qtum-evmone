@@ -6,8 +6,8 @@
 #include <gtest/gtest.h>
 #include <test/state/state.hpp>
 #include <test/state/system_contracts.hpp>
-#include <test/state/test_state.hpp>
 #include <test/utils/bytecode.hpp>
+#include <test/utils/test_state.hpp>
 
 using namespace evmc::literals;
 using namespace evmone::state;
@@ -34,8 +34,8 @@ TEST_F(state_system_call, non_existient)
 TEST_F(state_system_call, beacon_roots)
 {
     const BlockInfo block{.number = 1, .parent_beacon_block_root = 0xbeac04004a54_bytes32};
-    state.insert(
-        BEACON_ROOTS_ADDRESS, {.code = sstore(OP_NUMBER, calldataload(0)) + sstore(0, OP_CALLER)});
+    state[BEACON_ROOTS_ADDRESS] = {
+        .code = sstore(OP_NUMBER, calldataload(0)) + sstore(0, OP_CALLER)};
 
     system_call_block_start(state, block, block_hashes, EVMC_CANCUN, vm);
 
@@ -55,8 +55,8 @@ TEST_F(state_system_call, history_storage)
     static constexpr auto PREV_BLOCKHASH = 0xbbbb_bytes32;
     const BlockInfo block{.number = NUMBER};
     block_hashes = {{NUMBER - 1, PREV_BLOCKHASH}};
-    state.insert(HISTORY_STORAGE_ADDRESS,
-        {.code = sstore(OP_NUMBER, calldataload(0)) + sstore(0, OP_CALLER)});
+    state[HISTORY_STORAGE_ADDRESS] = {
+        .code = sstore(OP_NUMBER, calldataload(0)) + sstore(0, OP_CALLER)};
 
     system_call_block_start(state, block, block_hashes, EVMC_PRAGUE, vm);
 
@@ -74,15 +74,15 @@ TEST_F(state_system_call, withdrawal)
 {
     static constexpr auto WITHDRAWAL_REQUEST = 0x0123456789_bytes32;
     const BlockInfo block{.number = 1};
-    state.insert(WITHDRAWAL_REQUEST_ADDRESS,
-        {.code = mstore(0, WITHDRAWAL_REQUEST) + sstore(1, 1) + ret(0, 32)});
+    state[WITHDRAWAL_REQUEST_ADDRESS] = {
+        .code = mstore(0, WITHDRAWAL_REQUEST) + sstore(1, 1) + ret(0, 32)};
 
     // The consolidation system contract must not be empty and should not fail.
     state[CONSOLIDATION_REQUEST_ADDRESS].code = bytecode{OP_STOP};
 
     const auto r = system_call_block_end(state, block, block_hashes, EVMC_PRAGUE, vm);
-    ASSERT_TRUE(r.has_value());
-    const auto& requests = *r;
+    ASSERT_TRUE(std::holds_alternative<std::vector<Requests>>(r));
+    const auto& requests = std::get<std::vector<Requests>>(r);
 
     EXPECT_FALSE(state.contains(SYSTEM_ADDRESS));
     const auto& c = state.at(WITHDRAWAL_REQUEST_ADDRESS);
@@ -109,8 +109,8 @@ TEST_F(state_system_call, consolidation)
     state[WITHDRAWAL_REQUEST_ADDRESS].code = bytecode{OP_STOP};
 
     const auto r = system_call_block_end(state, block, block_hashes, EVMC_PRAGUE, vm);
-    ASSERT_TRUE(r.has_value());
-    const auto& requests = *r;
+    ASSERT_TRUE(std::holds_alternative<std::vector<Requests>>(r));
+    const auto& requests = std::get<std::vector<Requests>>(r);
 
     EXPECT_FALSE(state.contains(SYSTEM_ADDRESS));
     const auto& c = state.at(CONSOLIDATION_REQUEST_ADDRESS);
