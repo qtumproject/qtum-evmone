@@ -405,6 +405,12 @@ struct evmc_result;
  */
 typedef void (*evmc_release_result_fn)(const struct evmc_result* result);
 
+union evmc_result_optional_storage
+{
+    uint8_t bytes[24]; /**< 24 bytes of optional storage. */
+    void* pointer;     /**< Optional pointer. */
+};
+
 /** The EVM code execution result. */
 struct evmc_result
 {
@@ -485,7 +491,7 @@ struct evmc_result
      * This reserved 24 bytes of memory called "optional data" within evmc_result struct
      * to be optionally used by the evmc_result object creator.
      */
-    uint8_t optional_data[24];
+    evmc_result_optional_storage optional_data;
 };
 
 
