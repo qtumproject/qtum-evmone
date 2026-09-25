@@ -478,6 +478,14 @@ struct evmc_result
      * In all other cases the address MUST be null bytes.
      */
     evmc_address create_address;
+
+    /**
+     * Reserved data that MAY be used by a evmc_result object creator.
+     *
+     * This reserved 24 bytes of memory called "optional data" within evmc_result struct
+     * to be optionally used by the evmc_result object creator.
+     */
+    uint8_t optional_data[24];
 };
 
 
