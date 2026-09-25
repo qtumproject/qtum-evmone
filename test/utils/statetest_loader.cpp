@@ -375,7 +375,7 @@ static void from_json_tx_common(const json::json& j, state::Transaction& o)
     o.nonce = from_json<uint64_t>(j.at("nonce"));
 
     if (const auto chain_id_it = j.find("chainId"); chain_id_it != j.end())
-        o.chain_id = from_json<uint8_t>(*chain_id_it);
+        o.chain_id = from_json<uint64_t>(*chain_id_it);
     else
         o.chain_id = 1;
 
@@ -456,7 +456,7 @@ state::Transaction from_json<state::Transaction>(const json::json& j)
     o.nonce = from_json<uint64_t>(j.at("nonce"));
     o.r = from_json<intx::uint256>(j.at("r"));
     o.s = from_json<intx::uint256>(j.at("s"));
-    o.v = from_json<uint8_t>(j.at("v"));
+    o.v = from_json<uint64_t>(j.at("v"));
 
     return o;
 }

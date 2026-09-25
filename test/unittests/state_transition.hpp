@@ -62,6 +62,10 @@ protected:
         /// (`gas_used + gas_refund` equals `max(pre-refund gas, EIP-7623 floor)`).
         std::optional<int64_t> gas_refund;
 
+        /// The expected logs emitted by the transaction. When set, the receipt's logs must match
+        /// exactly: count, address, data, topics, and order.
+        std::optional<std::vector<Log>> logs;
+
         /// The expected post-execution state.
         std::unordered_map<address, ExpectedAccount> post;
 
@@ -98,6 +102,11 @@ protected:
 
     /// The test runner.
     void TearDown() override;
+
+    /// Build the expected EIP-7708 Transfer log: {SYSTEM_ADDRESS, amount (32-byte big-endian),
+    /// topics = [Transfer event topic, sender, recipient]}.
+    static Log transfer_log(
+        const address& sender, const address& recipient, const intx::uint256& amount);
 
     /// Exports the test in the JSON State Test format to ExportableFixture::export_out.
     void export_state_test(
