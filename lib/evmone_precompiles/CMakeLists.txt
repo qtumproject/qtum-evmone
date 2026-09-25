@@ -42,5 +42,3 @@ target_sources(
     kzg_precomputed_lines.hpp
     kzg_precomputed_lines.cpp
 )
-
-add_standalone_library(evmone_precompiles)
