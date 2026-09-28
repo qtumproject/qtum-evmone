@@ -124,7 +124,7 @@ int64_t process_authorization_list(
             continue;
 
         // 2. Verify the nonce is less than 2**64 - 1.
-        if (auth.nonce == Account::NonceMax)
+        if (auth.nonce == MAX_NONCE)
             continue;
 
         // 3. Verify if the signer has been successfully recovered from the signature.
@@ -203,7 +203,7 @@ int64_t process_authorization_list(
 
 evmc_message build_message(const Transaction& tx, int64_t execution_gas_limit) noexcept
 {
-    const auto recipient = tx.to.has_value() ? *tx.to : evmc::address{};
+    const auto recipient = tx.to.has_value() ? *tx.to : compute_create_address(tx.sender, tx.nonce);
 
     return {
         .kind = tx.to.has_value() ? EVMC_CALL : EVMC_CREATE,
@@ -215,7 +215,6 @@ evmc_message build_message(const Transaction& tx, int64_t execution_gas_limit) n
         .input_data = tx.data.data(),
         .input_size = tx.data.size(),
         .value = intx::be::store<evmc::uint256be>(tx.value),
-        .create2_salt = {},
         .code_address = recipient,
         .code = nullptr,
         .code_size = 0,
@@ -526,7 +525,7 @@ std::variant<TransactionProperties, std::error_code> validate_transaction(
         !is_code_delegated(state_view.get_account_code(tx.sender)))
         return make_error_code(SENDER_NOT_EOA);  // Origin must not be a contract (EIP-3607).
 
-    if (sender_acc.nonce == Account::NonceMax)  // Nonce value limit (EIP-2681).
+    if (sender_acc.nonce == MAX_NONCE)  // Nonce value limit (EIP-2681).
         return make_error_code(NONCE_HAS_MAX_VALUE);
 
     if (sender_acc.nonce < tx.nonce)
@@ -596,8 +595,8 @@ TransactionReceipt transition(const StateView& state_view, const BlockInfo& bloc
     State state{state_view};
 
     auto& sender_acc = state.get_or_insert(tx.sender);
-    assert(sender_acc.nonce < Account::NonceMax);  // Required for valid tx.
-    ++sender_acc.nonce;                            // Bump sender nonce.
+    assert(sender_acc.nonce < MAX_NONCE);  // Required for valid tx.
+    ++sender_acc.nonce;                    // Bump sender nonce.
 
     const auto delegation_refund =
         process_authorization_list(state, tx.chain_id, tx.authorization_list);
@@ -627,9 +626,10 @@ TransactionReceipt transition(const StateView& state_view, const BlockInfo& bloc
 
     Host host{rev, vm, state, block, block_hashes, tx};
 
-    sender_acc.access_status = EVMC_ACCESS_WARM;  // Tx sender is always warm.
-    if (tx.to.has_value())
-        host.access_account(*tx.to);
+    auto message = build_message(tx, tx_props.execution_gas_limit);
+
+    sender_acc.access_status = EVMC_ACCESS_WARM;  // Sender is always warm.
+    host.access_account(message.recipient);  // Recipient (incl. create address) is always warm.
     for (const auto& [a, storage_keys] : tx.access_list)
     {
         host.access_account(a);
@@ -642,7 +642,6 @@ TransactionReceipt transition(const StateView& state_view, const BlockInfo& bloc
     if (rev >= EVMC_SHANGHAI)
         host.access_account(block.coinbase);
 
-    auto message = build_message(tx, tx_props.execution_gas_limit);
     if (tx.to.has_value())
     {
         if (const auto delegate = get_delegate_address(host, *tx.to))
