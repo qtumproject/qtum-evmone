@@ -32,6 +32,11 @@ protected:
     /// The default destination address of the test transaction.
     static constexpr auto To = 0xc0de_address;
 
+    /// A second signing account, for tests needing a signature that is not the Sender's
+    /// (e.g. an EIP-7702 authority).
+    /// Private key: 0xa5.
+    static constexpr auto AUTHORITY = 0x1d694d5ad94f32132ff5c14c901d3ddbee90a550_address;
+
     static constexpr auto Coinbase = 0xc014bace_address;
 
     static inline evmc::VM vm{evmc_create_evmone()};
@@ -93,6 +98,7 @@ protected:
         .max_gas_price = block.base_fee + 1,
         .max_priority_gas_price = block.base_fee + 1,
         .sender = Sender,
+        .chain_id = 1,
         .nonce = 1,
     };
     TestState pre;

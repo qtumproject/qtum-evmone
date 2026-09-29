@@ -52,6 +52,7 @@ target_sources(
     precompiles_secp256r1_test.cpp
     precompiles_sha256_test.cpp
     precompiles_expmod_test.cpp
+    state_authorization_test.cpp
     state_block_test.cpp
     state_bloom_filter_test.cpp
     state_deposit_requests_test.cpp
@@ -59,6 +60,7 @@ target_sources(
     state_mpt_hash_test.cpp
     state_mpt_test.cpp
     state_precompiles_test.cpp
+    state_rlp_decode_test.cpp
     state_rlp_test.cpp
     state_system_call_test.cpp
     state_transition.hpp

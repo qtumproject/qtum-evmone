@@ -3,30 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "blockchaintest.hpp"
+#include "error_matching.hpp"
 #include "statetest.hpp"
 #include "utils.hpp"
 #include <test/state/errors.hpp>
 
 namespace evmone::test
 {
-
-namespace
-{
-template <typename T>
-T load_if_exists(const json::json& j, std::string_view key)
-{
-    if (const auto it = j.find(key); it != j.end())
-        return from_json<T>(*it);
-    return {};
-}
-template <typename T>
-std::optional<T> load_optional(const json::json& j, std::string_view key)
-{
-    if (const auto it = j.find(key); it != j.end())
-        return from_json<T>(*it);
-    return std::nullopt;
-}
-}  // namespace
 
 template <>
 BlockHeader from_json<BlockHeader>(const json::json& j)
@@ -37,22 +20,22 @@ BlockHeader from_json<BlockHeader>(const json::json& j)
         .state_root = from_json<hash256>(j.at("stateRoot")),
         .receipts_root = from_json<hash256>(j.at("receiptTrie")),
         .logs_bloom = state::bloom_filter_from_bytes(from_json<bytes>(j.at("bloom"))),
-        .difficulty = load_if_exists<int64_t>(j, "difficulty"),
-        .prev_randao = load_if_exists<bytes32>(j, "mixHash"),
+        .difficulty = load_or<int64_t>(j, "difficulty", 0),
+        .prev_randao = load_or<bytes32>(j, "mixHash", {}),
         .block_number = from_json<int64_t>(j.at("number")),
         .gas_limit = from_json<int64_t>(j.at("gasLimit")),
         .gas_used = from_json<int64_t>(j.at("gasUsed")),
         .timestamp = from_json<int64_t>(j.at("timestamp")),
         .extra_data = from_json<bytes>(j.at("extraData")),
-        .base_fee_per_gas = load_if_exists<uint64_t>(j, "baseFeePerGas"),
+        .base_fee_per_gas = load_or<uint64_t>(j, "baseFeePerGas", 0),
         .hash = from_json<hash256>(j.at("hash")),
         .transactions_root = from_json<hash256>(j.at("transactionsTrie")),
-        .withdrawal_root = load_if_exists<hash256>(j, "withdrawalsRoot"),
-        .parent_beacon_block_root = load_if_exists<hash256>(j, "parentBeaconBlockRoot"),
+        .withdrawal_root = load_or<hash256>(j, "withdrawalsRoot", {}),
+        .parent_beacon_block_root = load_or<hash256>(j, "parentBeaconBlockRoot", {}),
         .blob_gas_used = load_optional<uint64_t>(j, "blobGasUsed"),
         .excess_blob_gas = load_optional<uint64_t>(j, "excessBlobGas"),
-        .requests_hash = load_if_exists<hash256>(j, "requestsHash"),
-        .slot_number = load_if_exists<uint64_t>(j, "slotNumber"),
+        .requests_hash = load_or<hash256>(j, "requestsHash", {}),
+        .slot_number = load_optional<uint64_t>(j, "slotNumber"),
     };
 }
 
@@ -137,34 +120,6 @@ static TestBlock load_test_block(
 
 namespace
 {
-/// Maps a legacy "expectException" value to modern EEST-style exception name.
-std::string map_legacy_block_exception(std::string_view expected_exception)
-{
-    using enum state::ErrorCode;
-    using Entry = std::pair<std::string_view, state::ErrorCode>;
-
-    static constexpr Entry LEGACY_MAP[]{
-        // ethereum/tests (EEST-format):
-        {"BlockException.IMPORT_IMPOSSIBLE_UNCLES_OVER_PARIS", INCORRECT_BLOCK_FORMAT},
-        {"BlockException.GAS_USED_OVERFLOW", INCORRECT_BLOCK_FORMAT},
-        {"BlockException.RLP_STRUCTURES_ENCODING|BlockException.RLP_INVALID_FIELD_OVERFLOW_64",
-            INCORRECT_BLOCK_FORMAT},
-        // ethereum/legacytests (pre-EEST):
-        {"PostParisUncleHashIsNotEmpty", INCORRECT_BLOCK_FORMAT},
-        {"3675PreParis1559BlockRejected", INCORRECT_BLOCK_FORMAT},
-        {"InvalidNumber", INCORRECT_BLOCK_FORMAT},
-        {"InvalidTimestampOlderParent", INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT},
-        {"TooMuchGasUsed", INCORRECT_BLOCK_FORMAT},
-        {"UncleParentIsNotAncestor", INCORRECT_BLOCK_FORMAT},
-        {"InvalidGasLimit2", INVALID_GASLIMIT},
-        {"1559BlockImportImpossible_BaseFeeWrong", INVALID_BASEFEE_PER_GAS},
-    };
-
-    const auto it = std::ranges::find(LEGACY_MAP, expected_exception, &Entry::first);
-    return (it != std::end(LEGACY_MAP)) ? state::make_error_code(it->second).message() :
-                                          std::string{expected_exception};
-}
-
 BlockchainTest load_blockchain_test_case(const std::string& name, const json::json& j)
 {
     using namespace state;
@@ -175,10 +130,11 @@ BlockchainTest load_blockchain_test_case(const std::string& name, const json::js
     bt.pre_state = from_json<TestState>(j.at("pre"));
     bt.network = j.at("network").get<std::string>();
     bt.rev = to_rev_schedule(bt.network);
+    uint64_t chain_id = 1;
     if (const auto config_it = j.find("config"); config_it != j.end())
     {
-        if (const auto bs_it = config_it->find("blobSchedule"); bs_it != config_it->end())
-            bt.blob_schedule = from_json<BlobSchedule>(*bs_it);
+        bt.blob_schedule = load_or<BlobSchedule>(*config_it, "blobSchedule", {});
+        chain_id = load_or<uint64_t>(*config_it, "chainid", chain_id);
     }
     for (const auto& el : j.at("blocks"))
     {
@@ -194,24 +150,28 @@ BlockchainTest load_blockchain_test_case(const std::string& name, const json::js
                     "tests with invalidly rlp-encoded blocks are not supported");
 
             auto test_block = load_test_block(el.at("rlp_decoded"), bt.network, bt.blob_schedule);
-            test_block.expected_exception = map_legacy_block_exception(it->get<std::string>());
-            test_block.rlp_size = from_json<bytes>(el.at("rlp")).size();
+            test_block.expected_exception = map_legacy_exception(it->get<std::string>());
+            test_block.rlp = from_json<bytes>(el.at("rlp"));
             bt.test_blocks.emplace_back(test_block);
         }
         else
         {
             auto test_block = load_test_block(el, bt.network, bt.blob_schedule);
-            test_block.rlp_size = from_json<bytes>(el.at("rlp")).size();
+            test_block.rlp = from_json<bytes>(el.at("rlp"));
             bt.test_blocks.emplace_back(test_block);
         }
     }
 
+    for (auto& tb : bt.test_blocks)
+        tb.block_info.chain_id = chain_id;
+
     bt.expectation.last_block_hash = from_json<hash256>(j.at("lastblockhash"));
 
-    if (const auto it = j.find("postState"); it != j.end())
-        bt.expectation.post_state = from_json<TestState>(*it);
-    else if (const auto it_hash = j.find("postStateHash"); it_hash != j.end())
-        bt.expectation.post_state = from_json<hash256>(*it_hash);
+    // A test states its expected post state either in full or by its hash, never neither.
+    if (auto post_state = load_optional<TestState>(j, "postState"))
+        bt.expectation.post_state = std::move(*post_state);
+    else
+        bt.expectation.post_state = from_json<hash256>(j.at("postStateHash"));
 
     return bt;
 }

@@ -52,11 +52,21 @@ public:
 
     constexpr uint_type value() const noexcept { return Fp.from_mont(value_); }
 
+    /// The valid range for from_bytes().
+    enum class Range : bool
+    {
+        full,  ///< Valid in [0, ORDER).
+        half,  ///< Valid in [0, ORDER/2].
+    };
+
+    template <Range R = Range::full>
     static constexpr std::optional<FieldElement> from_bytes(
         std::span<const uint8_t, sizeof(uint_type)> b) noexcept
     {
+        constexpr auto LIMIT = R == Range::full ? ORDER : ORDER / 2 + 1;
+
         const auto x = intx::be::load<uint_type>(b);
-        if (x >= ORDER) [[unlikely]]
+        if (x >= LIMIT) [[unlikely]]
             return std::nullopt;
         return FieldElement{x};
     }
@@ -117,16 +127,6 @@ public:
 
     /// Named one element. Needed in the pairing templates.
     static constexpr auto one() noexcept { return FieldElement{1}; }
-};
-
-/// The affine (two coordinates) point on an Elliptic Curve over a prime field.
-template <typename ValueT>
-struct Point
-{
-    ValueT x = {};
-    ValueT y = {};
-
-    friend constexpr Point operator-(const Point& p) noexcept { return {p.x, -p.y}; }
 };
 
 /// The affine (two coordinates) point on an Elliptic Curve over a prime field.
@@ -207,12 +207,9 @@ struct ProjPoint
     friend constexpr ProjPoint operator-(const ProjPoint& p) noexcept { return {p.x, -p.y, p.z}; }
 };
 
-template <typename IntT>
-using InvFn = IntT (*)(const ModArith<IntT>&, const IntT& x) noexcept;
-
 /// Converts a projected point to an affine point.
 template <typename Curve>
-inline AffinePoint<Curve> to_affine(const ProjPoint<Curve>& p) noexcept
+AffinePoint<Curve> to_affine(const ProjPoint<Curve>& p) noexcept
 {
     // This works correctly for the point at infinity (z == 0) because then z_inv == 0.
     const auto z_inv = 1 / p.z;
@@ -374,7 +371,7 @@ ProjPoint<Curve> add(const ProjPoint<Curve>& p, const AffinePoint<Curve>& q) noe
 }
 
 template <typename Curve>
-ProjPoint<Curve> dbl(const ProjPoint<Curve>& p) noexcept
+constexpr ProjPoint<Curve> dbl(const ProjPoint<Curve>& p) noexcept
 {
     const auto& [x1, y1, z1] = p;
 

@@ -163,8 +163,8 @@ Result call_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noexce
     {
         if (has_value)
         {
-            msg.gas += 2300;  // Add stipend.
-            gas_left += 2300;
+            msg.gas += CALL_STIPEND;
+            gas_left += CALL_STIPEND;
             if (intx::be::load<uint256>(state.host.get_balance(state.msg->recipient)) < value)
                 return {EVMC_SUCCESS, gas_left};  // "Light" failure.
         }
@@ -217,7 +217,9 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
     const auto init_code_offset = static_cast<size_t>(init_code_offset_u256);
     const auto init_code_size = static_cast<size_t>(init_code_size_u256);
 
-    if (state.rev >= EVMC_SHANGHAI && init_code_size > 0xC000)
+    const size_t max_init_code_size =
+        state.rev >= EVMC_AMSTERDAM ? MAX_INITCODE_SIZE_AMSTERDAM : MAX_INITCODE_SIZE;
+    if (state.rev >= EVMC_SHANGHAI && init_code_size > max_init_code_size)
         return {EVMC_OUT_OF_GAS, gas_left};
 
     const auto init_code_word_cost = 6 * (Op == OP_CREATE2) + 2 * (state.rev >= EVMC_SHANGHAI);

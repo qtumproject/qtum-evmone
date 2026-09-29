@@ -45,6 +45,7 @@ void t8n(evmc::VM& vm, const T8NArgs& args)
         block = from_json_with_rev(j, rev, blob_params);
         block_hashes = from_json<TestBlockHashes>(j);
     }
+    block.chain_id = args.chain_id;
 
     JSON j_result;
 
@@ -101,18 +102,13 @@ void t8n(evmc::VM& vm, const T8NArgs& args)
                 auto tx = from_json<state::Transaction>(j_tx);
                 tx.chain_id = args.chain_id;
 
-                if (j_tx.contains("hash"))
+                if (const auto loaded_tx_hash = load_optional<hash256>(j_tx, "hash"))
                 {
                     const auto computed_tx_hash = keccak256(rlp::encode(tx));
-                    const auto loaded_tx_hash_opt =
-                        evmc::from_hex<bytes32>(j_tx["hash"].get<std::string>());
-                    if (!loaded_tx_hash_opt)
-                        throw std::logic_error("transaction hash hex is malformed: " +
-                                               j_tx["hash"].get<std::string>());
-                    if (*loaded_tx_hash_opt != computed_tx_hash)
+                    if (*loaded_tx_hash != computed_tx_hash)
                         throw std::logic_error("transaction hash mismatched: computed " +
                                                hex0x(computed_tx_hash) + ", expected " +
-                                               hex0x(*loaded_tx_hash_opt));
+                                               hex0x(*loaded_tx_hash));
                 }
 
                 txs.emplace_back(std::move(tx));
@@ -137,7 +133,7 @@ void t8n(evmc::VM& vm, const T8NArgs& args)
                 JSON j_rejected_tx;
                 j_rejected_tx["hash"] = hex0x(rejected_it->hash);
                 j_rejected_tx["index"] = i;
-                j_rejected_tx["error"] = rejected_it->message;
+                j_rejected_tx["error"] = rejected_it->error.message();
                 j_result["rejected"].push_back(j_rejected_tx);
                 ++rejected_it;
             }
