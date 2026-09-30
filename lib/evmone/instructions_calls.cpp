@@ -254,8 +254,13 @@ Result create_impl(StackTop stack, int64_t gas_left, ExecutionState& state) noex
                                         compute_create2_address(sender, salt, init_code);
 
     // Access to the new address is warmed and never reverted (EIP-2929).
+#ifdef QTUM_BUILD
+    if (state.rev >= EVMC_OSAKA)
+        state.host.access_account(msg.recipient);
+#else
     if (state.rev >= EVMC_BERLIN)
         state.host.access_account(msg.recipient);
+#endif
 
     msg.gas = gas_left;
     if (state.rev >= EVMC_TANGERINE_WHISTLE)
