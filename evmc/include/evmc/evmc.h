@@ -356,8 +356,10 @@ enum evmc_status_code
     /** The caller does not have enough funds for value transfer. */
     EVMC_INSUFFICIENT_BALANCE = 17,
 
+#ifdef QTUM_BUILD
     /** Qtum specific: create with value is not allowed. */
     EVMC_CREATE_WITH_VALUE = 1000,
+#endif
 
     /** EVM implementation generic internal error. */
     EVMC_INTERNAL_ERROR = -1,
@@ -400,11 +402,13 @@ struct evmc_result;
  */
 typedef void (*evmc_release_result_fn)(const struct evmc_result* result);
 
+#ifdef QTUM_BUILD
 union evmc_result_optional_storage
 {
     uint8_t bytes[24]; /**< 24 bytes of optional storage. */
     void* pointer;     /**< Optional pointer. */
 };
+#endif
 
 /** The state-gas counters of an execution (EIP-8037). */
 struct evmc_state_gas
@@ -489,6 +493,7 @@ struct evmc_result
      */
     evmc_release_result_fn release;
 
+#ifdef QTUM_BUILD
     /**
      * Reserved data that MAY be used by a evmc_result object creator.
      *
@@ -496,6 +501,7 @@ struct evmc_result
      * to be optionally used by the evmc_result object creator.
      */
     evmc_result_optional_storage optional_data;
+#endif
 };
 
 
