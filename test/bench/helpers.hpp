@@ -10,12 +10,26 @@
 #include <evmone/advanced_analysis.hpp>
 #include <evmone/advanced_execution.hpp>
 #include <evmone/baseline.hpp>
-#include <evmone/eof.hpp>
 #include <evmone/vm.hpp>
+#include <source_location>
 
 namespace evmone::test
 {
 extern std::map<std::string_view, evmc::VM> registered_vms;
+
+/// Decorates a dynamically registered benchmark name with the location of the registration.
+/// CodSpeed identifies benchmarks by the "source_file::name" URI, which the BENCHMARK() macro
+/// adds automatically, but RegisterBenchmark() does not. Without CodSpeed this is a no-op.
+/// The default argument is evaluated at the call site, naming the file registering the benchmark.
+inline std::string bench_name(std::string name,
+    [[maybe_unused]] const std::source_location loc = std::source_location::current())
+{
+#ifdef CODSPEED_ENABLED
+    return codspeed::get_path_relative_to_workspace(loc.file_name()) + "::" + std::move(name);
+#else
+    return name;
+#endif
+}
 
 constexpr auto default_revision = EVMC_ISTANBUL;
 constexpr auto default_gas_limit = std::numeric_limits<int64_t>::max();
@@ -42,7 +56,7 @@ inline advanced::AdvancedCodeAnalysis advanced_analyse(evmc_revision rev, bytes_
 
 inline baseline::CodeAnalysis baseline_analyse(evmc_revision /*rev*/, bytes_view code)
 {
-    return baseline::analyze(code, true);  // Always enable EOF.
+    return baseline::analyze(code);
 }
 
 inline FakeCodeAnalysis evmc_analyse(evmc_revision /*rev*/, bytes_view /*code*/)
@@ -146,10 +160,12 @@ inline void bench_execute(benchmark::State& state, evmc::VM& vm, bytes_view code
 }
 
 
-constexpr auto bench_advanced_execute = bench_execute<advanced::AdvancedExecutionState,
+// TODO(C++23): use constexpr.
+inline auto bench_advanced_execute = bench_execute<advanced::AdvancedExecutionState,
     advanced::AdvancedCodeAnalysis, advanced_execute, advanced_analyse>;
 
-constexpr auto bench_baseline_execute =
+// TODO(C++23): use constexpr.
+inline auto bench_baseline_execute =
     bench_execute<ExecutionState, baseline::CodeAnalysis, baseline_execute, baseline_analyse>;
 
 inline void bench_evmc_execute(benchmark::State& state, evmc::VM& vm, bytes_view code,

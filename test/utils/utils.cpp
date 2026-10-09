@@ -13,14 +13,12 @@ evmc_revision to_rev(std::string_view s)
         return EVMC_FRONTIER;
     if (s == "Homestead")
         return EVMC_HOMESTEAD;
-    if (s == "Tangerine Whistle" || s == "EIP150")
+    if (s == "TangerineWhistle" || s == "EIP150")
         return EVMC_TANGERINE_WHISTLE;
-    if (s == "Spurious Dragon" || s == "EIP158")
+    if (s == "SpuriousDragon" || s == "EIP158")
         return EVMC_SPURIOUS_DRAGON;
     if (s == "Byzantium")
         return EVMC_BYZANTIUM;
-    if (s == "Constantinople")
-        return EVMC_CONSTANTINOPLE;
     if (s == "Petersburg" || s == "ConstantinopleFix")
         return EVMC_PETERSBURG;
     if (s == "Istanbul")
@@ -39,8 +37,18 @@ evmc_revision to_rev(std::string_view s)
         return EVMC_PRAGUE;
     if (s == "Osaka")
         return EVMC_OSAKA;
-    if (s == "EOFv1")
-        return EVMC_EXPERIMENTAL;
+    if (s == "Amsterdam")
+        return EVMC_AMSTERDAM;
+    if (s == "OsakaToBPO1AtTime15k")
+        return EVMC_OSAKA;
+    if (s == "BPO1ToBPO2AtTime15k")
+        return EVMC_OSAKA;
+    if (s == "BPO2ToBPO3AtTime15k")
+        return EVMC_OSAKA;
+    if (s == "BPO3ToBPO4AtTime15k")
+        return EVMC_OSAKA;
+    if (s == "BPO2ToAmsterdamAtTime15k")
+        return EVMC_OSAKA;
     if (s == "Experimental")
         return EVMC_EXPERIMENTAL;
     throw std::invalid_argument{"unknown revision: " + std::string{s}};
@@ -58,6 +66,8 @@ RevisionSchedule to_rev_schedule(std::string_view s)
         return {EVMC_CANCUN, EVMC_PRAGUE, 15'000};
     if (s == "PragueToOsakaAtTime15k")
         return {EVMC_PRAGUE, EVMC_OSAKA, 15'000};
+    if (s == "BPO2ToAmsterdamAtTime15k")
+        return {EVMC_OSAKA, EVMC_AMSTERDAM, 15'000};
 
     const auto single_rev = to_rev(s);
     return {single_rev, single_rev, 0};

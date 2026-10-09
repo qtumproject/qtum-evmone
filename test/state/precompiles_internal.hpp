@@ -36,8 +36,11 @@ PrecompileAnalysis bls12_g2msm_analyze(evmc::bytes_view input, evmc_revision rev
 PrecompileAnalysis bls12_pairing_check_analyze(evmc::bytes_view input, evmc_revision rev) noexcept;
 PrecompileAnalysis bls12_map_fp_to_g1_analyze(evmc::bytes_view input, evmc_revision rev) noexcept;
 PrecompileAnalysis bls12_map_fp2_to_g2_analyze(evmc::bytes_view input, evmc_revision rev) noexcept;
+PrecompileAnalysis p256verify_analyze(evmc::bytes_view input, evmc_revision rev) noexcept;
 
 ExecutionResult ecrecover_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
+ExecutionResult ecrecover_execute_evmone(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 ExecutionResult sha256_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
@@ -46,6 +49,8 @@ ExecutionResult ripemd160_execute(
 ExecutionResult identity_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 ExecutionResult expmod_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
+ExecutionResult expmod_execute_evmone(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 ExecutionResult ecadd_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
@@ -70,5 +75,7 @@ ExecutionResult bls12_pairing_check_execute(
 ExecutionResult bls12_map_fp_to_g1_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 ExecutionResult bls12_map_fp2_to_g2_execute(
+    const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
+ExecutionResult p256verify_execute(
     const uint8_t* input, size_t input_size, uint8_t* output, size_t output_size) noexcept;
 }  // namespace evmone::state

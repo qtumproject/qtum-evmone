@@ -24,8 +24,8 @@ ExternalProject_Add(
     blst
     EXCLUDE_FROM_ALL TRUE
     PREFIX ${PROJECT_BINARY_DIR}/deps
-    URL https://github.com/supranational/blst/archive/refs/tags/v0.3.15.tar.gz
-    URL_HASH SHA256=9e503ff6b50e044efb075d260c81c751702b3ed6f2e45394b0833834e71c3afa
+    URL https://github.com/supranational/blst/archive/refs/tags/v0.3.17.tar.gz
+    URL_HASH SHA256=c3fef37b566b67419703b2bbb648e15176276af9a880c22aa8f5f2e8cecc2e4d
     DOWNLOAD_NO_PROGRESS TRUE
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ${BLST_BUILD_SCRIPT}

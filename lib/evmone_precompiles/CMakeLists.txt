@@ -6,7 +6,7 @@ include(blst)
 
 add_library(evmone_precompiles STATIC)
 add_library(evmone::precompiles ALIAS evmone_precompiles)
-target_link_libraries(evmone_precompiles PUBLIC evmc::evmc_cpp PRIVATE evmone::evmmax blst::blst)
+target_link_libraries(evmone_precompiles PUBLIC evmc::evmc_cpp intx::intx PRIVATE blst::blst)
 target_include_directories(evmone_precompiles INTERFACE ..)
 target_sources(
     evmone_precompiles PRIVATE
@@ -25,16 +25,27 @@ target_sources(
     pairing/bn254/pairing.cpp
     pairing/bn254/utils.hpp
     pairing/field_template.hpp
+    modarith.hpp
     modexp.hpp
     modexp.cpp
+    mulmod.hpp
+    mulmod.cpp
     ripemd160.hpp
     ripemd160.cpp
     secp256k1.hpp
     secp256k1.cpp
+    secp256r1.hpp
+    secp256r1.cpp
     sha256.hpp
     sha256.cpp
     kzg.hpp
     kzg.cpp
+    kzg_precomputed_lines.hpp
+    kzg_precomputed_lines.cpp
 )
 
-add_standalone_library(evmone_precompiles)
+# Enable optimizations in the cryptography code also in Debug builds, otherwise it is very slow.
+target_compile_options(
+    evmone_precompiles PRIVATE
+    $<$<AND:$<CONFIG:Debug>,$<CXX_COMPILER_ID:GNU,Clang,AppleClang>>:-O1>
+)

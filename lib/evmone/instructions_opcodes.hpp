@@ -12,7 +12,7 @@ namespace evmone
 ///
 /// This is not enum class because we want implicit conversion to integers,
 /// e.g. for usage as an array index.
-enum Opcode : uint8_t
+enum Opcode : uint8_t  // NOLINT(*-use-enum-class)
 {
     OP_STOP = 0x00,
     OP_ADD = 0x01,
@@ -73,6 +73,7 @@ enum Opcode : uint8_t
     OP_BASEFEE = 0x48,
     OP_BLOBHASH = 0x49,
     OP_BLOBBASEFEE = 0x4a,
+    OP_SLOTNUM = 0x4b,
 
     OP_POP = 0x50,
     OP_MLOAD = 0x51,
@@ -160,25 +161,9 @@ enum Opcode : uint8_t
     OP_LOG3 = 0xa3,
     OP_LOG4 = 0xa4,
 
-    OP_DATALOAD = 0xd0,
-    OP_DATALOADN = 0xd1,
-    OP_DATASIZE = 0xd2,
-    OP_DATACOPY = 0xd3,
-
-    OP_RJUMP = 0xe0,
-    OP_RJUMPI = 0xe1,
-    OP_RJUMPV = 0xe2,
-    OP_CALLF = 0xe3,
-    OP_RETF = 0xe4,
-    OP_JUMPF = 0xe5,
-
     OP_DUPN = 0xe6,
     OP_SWAPN = 0xe7,
     OP_EXCHANGE = 0xe8,
-
-    OP_EOFCREATE = 0xec,
-    OP_TXCREATE = 0xed,
-    OP_RETURNCODE = 0xee,
 
     OP_CREATE = 0xf0,
     OP_CALL = 0xf1,
@@ -186,12 +171,8 @@ enum Opcode : uint8_t
     OP_RETURN = 0xf3,
     OP_DELEGATECALL = 0xf4,
     OP_CREATE2 = 0xf5,
-    OP_RETURNDATALOAD = 0xf7,
 
-    OP_EXTCALL = 0xf8,
-    OP_EXTDELEGATECALL = 0xf9,
     OP_STATICCALL = 0xfa,
-    OP_EXTSTATICCALL = 0xfb,
 
     OP_REVERT = 0xfd,
     OP_INVALID = 0xfe,

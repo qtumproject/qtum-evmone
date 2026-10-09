@@ -2,12 +2,11 @@
 // Copyright 2019 The evmone Authors.
 // SPDX-License-Identifier: Apache-2.0
 
-#include "../statetest/statetest.hpp"
+#include "../utils/statetest.hpp"
 #include "helpers.hpp"
 #include "synthetic_benchmarks.hpp"
 #include <benchmark/benchmark.h>
 #include <evmc/evmc.hpp>
-#include <evmc/loader.h>
 #include <evmone/evmone.h>
 #include <filesystem>
 #include <fstream>
@@ -61,7 +60,7 @@ BenchmarkCase load_benchmark(const fs::path& path, const std::string& name_prefi
     auto state_test = std::move(load_state_tests(f).at(0));
 
     const auto name = name_prefix + path.stem().string();
-    const auto code = state_test.pre_state.get(state_test.multi_tx.to.value()).code;
+    const auto code = state_test.pre_state[state_test.multi_tx.to.value()].code;
     const auto inputs = load_inputs(state_test);
 
     return BenchmarkCase{name, code, inputs};
@@ -117,7 +116,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
     {
         if (advanced_vm != nullptr)
         {
-            RegisterBenchmark("advanced/analyse/" + b.name, [&b](State& state) {
+            RegisterBenchmark(bench_name("advanced/analyse/" + b.name), [&b](State& state) {
                 bench_analyse<advanced::AdvancedCodeAnalysis, advanced_analyse>(
                     state, default_revision, b.code);
             })->Unit(kMicrosecond);
@@ -125,7 +124,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
         if (baseline_vm != nullptr)
         {
-            RegisterBenchmark("baseline/analyse/" + b.name, [&b](State& state) {
+            RegisterBenchmark(bench_name("baseline/analyse/" + b.name), [&b](State& state) {
                 bench_analyse<baseline::CodeAnalysis, baseline_analyse>(
                     state, default_revision, b.code);
             })->Unit(kMicrosecond);
@@ -137,7 +136,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
             if (advanced_vm != nullptr)
             {
-                const auto name = "advanced/execute/" + case_name;
+                const auto name = bench_name("advanced/execute/" + case_name);
                 RegisterBenchmark(name, [&vm = *advanced_vm, &b, &input](State& state) {
                     bench_advanced_execute(state, vm, b.code, input.input, input.expected_output);
                 })->Unit(kMicrosecond);
@@ -145,7 +144,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
             if (baseline_vm != nullptr)
             {
-                const auto name = "baseline/execute/" + case_name;
+                const auto name = bench_name("baseline/execute/" + case_name);
                 RegisterBenchmark(name, [&vm = *baseline_vm, &b, &input](State& state) {
                     bench_baseline_execute(state, vm, b.code, input.input, input.expected_output);
                 })->Unit(kMicrosecond);
@@ -153,7 +152,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
             if (basel_cg_vm != nullptr)
             {
-                const auto name = "bnocgoto/execute/" + case_name;
+                const auto name = bench_name("bnocgoto/execute/" + case_name);
                 RegisterBenchmark(name, [&vm = *basel_cg_vm, &b, &input](State& state) {
                     bench_baseline_execute(state, vm, b.code, input.input, input.expected_output);
                 })->Unit(kMicrosecond);
@@ -161,7 +160,7 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
             for (auto& [vm_name, vm] : registered_vms)
             {
-                const auto name = std::string{vm_name} + "/total/" + case_name;
+                const auto name = bench_name(std::string{vm_name} + "/total/" + case_name);
                 RegisterBenchmark(name, [&vm, &b, &input](State& state) {
                     bench_evmc_execute(state, vm, b.code, input.input, input.expected_output);
                 })->Unit(kMicrosecond);
@@ -172,7 +171,6 @@ void register_benchmarks(std::span<const BenchmarkCase> benchmark_cases)
 
 
 /// The error code for CLI arguments parsing error in evmone-bench.
-/// The number tries to be different from EVMC loading error codes.
 constexpr auto cli_parsing_error = -3;
 
 /// Parses evmone-bench CLI arguments and registers benchmark cases.
@@ -183,8 +181,6 @@ constexpr auto cli_parsing_error = -3;
 ///    Uses evmone VMs, only synthetic benchmarks are available.
 /// 2: evmone-bench benchmarks_dir
 ///    Uses evmone VMs, loads all benchmarks from benchmarks_dir.
-/// 3: evmone-bench evmc_config benchmarks_dir
-///    The same as (2) but loads additional custom EVMC VM.
 /// 4: evmone-bench code_hex_file input_hex expected_output_hex.
 ///    Uses evmone VMs, registers custom benchmark with the code from the given file,
 ///    and the given input. The benchmark will compare the output with the provided
@@ -192,7 +188,6 @@ constexpr auto cli_parsing_error = -3;
 std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
 {
     // Arguments' placeholders:
-    std::string evmc_config;
     std::string benchmarks_dir;
     std::string code_hex_file;
     std::string input_hex;
@@ -206,10 +201,6 @@ std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
     case 2:
         benchmarks_dir = argv[1];
         break;
-    case 3:
-        evmc_config = argv[1];
-        benchmarks_dir = argv[2];
-        break;
     case 4:
         code_hex_file = argv[1];
         input_hex = argv[2];
@@ -218,23 +209,6 @@ std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
     default:
         std::cerr << "Too many arguments\n";
         return {cli_parsing_error, {}};
-    }
-
-    if (!evmc_config.empty())
-    {
-        auto ec = evmc_loader_error_code{};
-        registered_vms["external"] = evmc::VM{evmc_load_and_configure(evmc_config.c_str(), &ec)};
-
-        if (ec != EVMC_LOADER_SUCCESS)
-        {
-            if (const auto error = evmc_last_error_msg())
-                std::cerr << "EVMC loading error: " << error << "\n";
-            else
-                std::cerr << "EVMC loading error " << ec << "\n";
-            return {static_cast<int>(ec), {}};
-        }
-
-        std::cout << "External VM: " << evmc_config << "\n";
     }
 
     if (!benchmarks_dir.empty())
@@ -260,7 +234,10 @@ std::tuple<int, std::vector<BenchmarkCase>> parseargs(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
+#ifndef CODSPEED_ENABLED
+    // Not available in the google/benchmark version CodSpeed's fork is based on, nor needed there.
     MaybeReenterWithoutASLR(argc, argv);
+#endif
 
     using namespace evmone::test;
     try

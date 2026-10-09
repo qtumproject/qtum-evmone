@@ -300,19 +300,6 @@ TEST_F(tracing, trace_code_containing_zero)
     EXPECT_EQ(tracer.get_last_code().size(), code.size());
 }
 
-TEST_F(tracing, trace_eof)
-{
-    vm.add_tracer(evmone::create_instruction_tracer(trace_stream));
-
-    trace_stream << '\n';
-    EXPECT_EQ(trace(bytecode{eof_bytecode(add(2, 3) + OP_STOP, 2)}, 0, 0, EVMC_EXPERIMENTAL), R"(
-{"pc":0,"op":96,"gas":"0xf4240","gasCost":"0x3","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"}
-{"pc":2,"op":96,"gas":"0xf423d","gasCost":"0x3","memSize":0,"stack":["0x3"],"depth":1,"refund":0,"opName":"PUSH1"}
-{"pc":4,"op":1,"gas":"0xf423a","gasCost":"0x3","memSize":0,"stack":["0x3","0x2"],"depth":1,"refund":0,"opName":"ADD"}
-{"pc":5,"op":0,"gas":"0xf4237","gasCost":"0x0","memSize":0,"stack":["0x5"],"depth":1,"refund":0,"opName":"STOP"}
-)");
-}
-
 TEST_F(tracing, trace_create_instruction)
 {
     using namespace evmc::literals;
@@ -324,7 +311,6 @@ TEST_F(tracing, trace_create_instruction)
     const auto code = push(10) + push(0) + push(0) + OP_CREATE + ret_top();
 
     const auto result_data = "0x60016000526001601ff3"_hex;
-    host.call_result.create_address = 0x1122334455667788991011223344556677889910_address;
     host.call_result.output_data = result_data.data();
     host.call_result.output_size = result_data.size();
 
@@ -333,8 +319,8 @@ TEST_F(tracing, trace_create_instruction)
 {"pc":2,"op":96,"gas":"0xf423d","gasCost":"0x3","memSize":0,"stack":["0xa"],"depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":4,"op":96,"gas":"0xf423a","gasCost":"0x3","memSize":0,"stack":["0xa","0x0"],"depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":6,"op":240,"gas":"0xf4237","gasCost":"0x7d00","memSize":0,"stack":["0xa","0x0","0x0"],"depth":1,"refund":0,"opName":"CREATE"}
-{"pc":7,"op":96,"gas":"0x3b14","gasCost":"0x3","memSize":32,"stack":["0x1122334455667788991011223344556677889910"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"PUSH1"}
-{"pc":9,"op":82,"gas":"0x3b11","gasCost":"0x3","memSize":32,"stack":["0x1122334455667788991011223344556677889910","0x0"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"MSTORE"}
+{"pc":7,"op":96,"gas":"0x3b14","gasCost":"0x3","memSize":32,"stack":["0xbd770416a3345f91e4b34576cb804a576fa48eb1"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"PUSH1"}
+{"pc":9,"op":82,"gas":"0x3b11","gasCost":"0x3","memSize":32,"stack":["0xbd770416a3345f91e4b34576cb804a576fa48eb1","0x0"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"MSTORE"}
 {"pc":10,"op":96,"gas":"0x3b0e","gasCost":"0x3","memSize":32,"stack":[],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":12,"op":96,"gas":"0x3b0b","gasCost":"0x3","memSize":32,"stack":["0x20"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"PUSH1"}
 {"pc":14,"op":243,"gas":"0x3b08","gasCost":"0x0","memSize":32,"stack":["0x20","0x0"],"returnData":"0x60016000526001601ff3","depth":1,"refund":0,"opName":"RETURN"}

@@ -22,11 +22,6 @@ void destroy(evmc_vm* vm) noexcept
     delete static_cast<VM*>(vm);
 }
 
-constexpr evmc_capabilities_flagset get_capabilities(evmc_vm* /*vm*/) noexcept
-{
-    return EVMC_CAPABILITY_EVM1;
-}
-
 evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const* c_value) noexcept
 {
     const auto name = (c_name != nullptr) ? std::string_view{c_name} : std::string_view{};
@@ -65,11 +60,6 @@ evmc_set_option_result set_option(evmc_vm* c_vm, char const* c_name, char const*
     {
         vm.add_tracer(create_instruction_counter(value));
     }
-    else if (name == "validate_eof")
-    {
-        vm.validate_eof = true;
-        return EVMC_SET_OPTION_SUCCESS;
-    }
     return EVMC_SET_OPTION_INVALID_NAME;
 }
 
@@ -83,7 +73,6 @@ VM::VM() noexcept
         PROJECT_VERSION,
         evmone::destroy,
         evmone::baseline::execute,
-        evmone::get_capabilities,
         evmone::set_option,
     }
 {

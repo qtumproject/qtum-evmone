@@ -5,16 +5,15 @@
 #include "../../bn254.hpp"
 #include "fields.hpp"
 #include "utils.hpp"
-#include <vector>
 
-namespace evmmax::bn254
+namespace evmone::crypto::bn254
 {
 namespace
 {
 /// Multiplies `fr` (Fq12) values by sparse `v` (Fq12) value of the form
-/// [[t[0] * y, 0, 0],[t[1] * x, t[0], 0]] where `v` coefficients are from Fq2
+/// [[t[0] * y, 0, 0],[t[1] * x, t[2], 0]] where `v` coefficients are from Fq2
 constexpr void multiply_by_lin_func_value(
-    Fq12& fr, std::array<Fq2, 3> t, const Fq& x, const Fq& y) noexcept
+    Fq12& fr, const std::array<Fq2, 3>& t, const Fq& x, const Fq& y) noexcept
 {
     const Fq12 f = fr;
     const auto& ksi = Fq6Config::ksi;
@@ -37,55 +36,79 @@ constexpr void multiply_by_lin_func_value(
         f.coeffs[1].coeffs[2] * t0y + f.coeffs[0].coeffs[2] * t1x + f.coeffs[0].coeffs[1] * t[2];
 }
 
-// 0000000100010010000010000000010000100010000000010010000000001000000100100000010000000000100000100001001000000010001000000001000101
-// NAF rep 00 -> 0, 01 -> 1, 10 -> -1
-// miller loop goes from L-2 to 0 inclusively. NAF rep of 29793968203157093288 (6x+2) is two bits
-// longer, but we omit lowest 2 bits.
-inline constexpr auto ATE_LOOP_COUNT_NAF = 0x1120804220120081204008212022011_u128;
-inline constexpr int LOG_ATE_LOOP_COUNT = 63;
+/// The signed digits of the ate loop count 6x+2 = 29793968203157093288, most significant first,
+/// with the leading 1 omitted. This is a semi-NAF: adjacent non-zeros occur only at the leading
+/// 1, 1, which the non-adjacent form spells as 1, 0, -1. Both have 22 non-zero digits, but this
+/// one is a digit shorter, i.e. one loop iteration less.
+// clang-format off
+inline constexpr int8_t ATE_LOOP_COUNT_DIGITS[] = {
+     1,  0,  1,  0,  0,  0, -1,  0, -1,  0,  0,  0, -1,  0,  1,  0,
+    -1,  0,  0, -1,  0,  0,  0,  0,  0,  1,  0,  0, -1,  0,  1,  0,
+     0, -1,  0,  0,  0,  0, -1,  0,  1,  0,  0,  0, -1,  0, -1,  0,
+     0,  1,  0,  0,  0, -1,  0,  0, -1,  0,  1,  0,  1,  0,  0,  0,
+};
+// clang-format on
 
-/// Miller loop according to https://eprint.iacr.org/2010/354.pdf Algorithm 1.
-Fq12 miller_loop(const ecc::Point<Fq2>& Q, const ecc::Point<Fq>& P) noexcept
+/// Miller loop for all the pairs at once,
+/// according to https://eprint.iacr.org/2010/354.pdf Algorithm 1.
+Fq12 multi_miller_loop(std::span<const std::pair<AffinePoint, ExtPoint>> pairs) noexcept
 {
-    auto T = ecc::JacPoint<Fq2>::from(Q);
-    auto nQ = -Q;
+    // The running point of every pair; starting at Q applies the omitted leading digit 1.
+    // TODO: Avoid the allocation: at most 492 pairs fit the transaction gas limit (EIP-7825).
+    // TODO: Caching -Q and -P.y next to the running points may be beneficial.
+    std::vector<ecc::ProjPoint<E2>> Ts;
+    Ts.reserve(pairs.size());
+    for (const auto& [_, Q] : pairs)
+        Ts.emplace_back(Q);
+
     auto f = Fq12::one();
     std::array<Fq2, 3> t;
-    auto naf = ATE_LOOP_COUNT_NAF;
-    const auto ny = -P.y;
 
-    for (int i = 0; i <= LOG_ATE_LOOP_COUNT; ++i)
+    for (const auto digit : ATE_LOOP_COUNT_DIGITS)
     {
-        T = lin_func_and_dbl(T, t);
+        // The f <- f^2 * line recurrence is multiplicative over the pairs, so a single
+        // accumulator serves them all: one squaring per iteration instead of one per pair.
         f = square(f);
-        multiply_by_lin_func_value(f, t, P.x, ny);
 
-        if (naf & 1)
+        for (size_t j = 0; j != pairs.size(); ++j)
         {
-            T = lin_func_and_add(T, Q, t);
-            multiply_by_lin_func_value(f, t, P.x, P.y);
+            const auto& [P, Q] = pairs[j];
+            if (P == 0 || Q == 0)  // A pair with a point at infinity contributes 1.
+                continue;
+
+            auto& T = Ts[j];
+            T = lin_func_and_dbl(T, t);
+            multiply_by_lin_func_value(f, t, P.x, -P.y);
+
+            if (digit != 0)
+            {
+                T = lin_func_and_add(T, digit > 0 ? Q : -Q, t);
+                multiply_by_lin_func_value(f, t, P.x, P.y);
+            }
         }
-        else if (naf & 2)
-        {
-            T = lin_func_and_add(T, nQ, t);
-            multiply_by_lin_func_value(f, t, P.x, P.y);
-        }
-        naf >>= 2;
     }
 
-    // Frobenius endomorphism for point Q from twisted curve over Fq2 field.
-    // It's essentially untwist -> frobenius -> twist chain of transformation.
-    const auto Q1 = endomorphism<1>(Q);
+    for (size_t j = 0; j != pairs.size(); ++j)
+    {
+        const auto& [P, Q] = pairs[j];
+        if (P == 0 || Q == 0)
+            continue;
 
-    // Similar to above one. It makes untwist -> frobenius^2 -> twist transformation plus
-    // negation according to miller loop spec.
-    const auto nQ2 = -endomorphism<2>(Q);
+        // Frobenius endomorphism for point Q from twisted curve over Fq2 field.
+        // It's essentially untwist -> frobenius -> twist chain of transformation.
+        const auto Q1 = endomorphism<1>(Q);
 
-    T = lin_func_and_add(T, Q1, t);
-    multiply_by_lin_func_value(f, t, P.x, P.y);
+        // Similar to above one. It makes untwist -> frobenius^2 -> twist transformation plus
+        // negation according to miller loop spec.
+        const auto nQ2 = -endomorphism<2>(Q);
 
-    lin_func(T, nQ2, t);
-    multiply_by_lin_func_value(f, t, P.x, P.y);
+        auto& T = Ts[j];
+        T = lin_func_and_add(T, Q1, t);
+        multiply_by_lin_func_value(f, t, P.x, P.y);
+
+        lin_func(T, nQ2, t);
+        multiply_by_lin_func_value(f, t, P.x, P.y);
+    }
 
     return f;
 }
@@ -128,45 +151,23 @@ Fq12 final_exp(const Fq12& v) noexcept
 }
 }  // namespace
 
-std::optional<bool> pairing_check(std::span<const std::pair<Point, ExtPoint>> pairs) noexcept
+std::optional<bool> pairing_check(std::span<const std::pair<AffinePoint, ExtPoint>> pairs) noexcept
 {
     if (pairs.empty())
         return true;
 
-    auto f = Fq12::one();
-
     for (const auto& [p, q] : pairs)
     {
-        if (!is_field_element(p.x) || !is_field_element(p.y) || !is_field_element(q.x.first) ||
-            !is_field_element(q.x.second) || !is_field_element(q.y.first) ||
-            !is_field_element(q.y.second))
-        {
-            return std::nullopt;
-        }
-
-        // Converts points' coefficients in Montgomery form.
-        const auto P_aff = ecc::Point<Fq>{Fq::from_int(p.x), Fq::from_int(p.y)};
-        const auto Q_aff = ecc::Point<Fq2>{Fq2({Fq::from_int(q.x.first), Fq::from_int(q.x.second)}),
-            Fq2({Fq::from_int(q.y.first), Fq::from_int(q.y.second)})};
-
-        const bool g1_is_inf = is_infinity(P_aff);
-        const bool g2_is_inf = g2_is_infinity(Q_aff);
-
-        // Verify that P in on curve. For this group it also means that P is in G1.
-        if (!g1_is_inf && !is_on_curve(P_aff))
+        if (!validate(p))
             return std::nullopt;
 
-        // Verify that Q in on curve and in proper subgroup. This subgroup is much smaller than
-        // group containing all the points from twisted curve over Fq2 field.
-        if (!g2_is_inf && (!is_on_twisted_curve(Q_aff) || !g2_subgroup_check(Q_aff)))
+        // Verify that Q is on the curve and in the proper subgroup. This subgroup is much smaller
+        // than the group containing all the points from the twisted curve over Fq2 field.
+        // TODO: Fold q != 0 check into curve/subgroup checks.
+        if (q != 0 && (!is_on_twisted_curve(q) || !g2_subgroup_check(q)))
             return std::nullopt;
-
-        // If any of the points is infinity it means that miller_loop returns 1. so we can skip it.
-        if (!g1_is_inf && !g2_is_inf)
-            f = f * miller_loop(Q_aff, P_aff);
     }
 
-    // final exp is calculated on accumulated value
-    return final_exp(f) == Fq12::one();
+    return final_exp(multi_miller_loop(pairs)) == Fq12::one();
 }
-}  // namespace evmmax::bn254
+}  // namespace evmone::crypto::bn254

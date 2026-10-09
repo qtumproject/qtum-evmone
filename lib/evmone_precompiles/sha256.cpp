@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <cstring>
 
-#if defined(__x86_64__)
+#if defined(__x86_64__)  // NOLINT(readability-use-concise-preprocessor-directives)
 
 #include <cpuid.h>
 #include <x86intrin.h>
@@ -135,7 +135,7 @@ static bool calc_chunk(uint8_t chunk[CHUNK_SIZE], struct BufferState* state)
     return true;
 }
 
-[[gnu::always_inline, msvc::forceinline]] static void sha_256_implementation(
+[[gnu::always_inline, msvc::forceinline]] static inline void sha_256_implementation(
     uint32_t h[8], const std::byte* input, size_t len)
 {
     /*
@@ -243,7 +243,7 @@ static void sha_256_generic(uint32_t h[8], const std::byte* input, size_t len)
 
 static void (*sha_256_best)(uint32_t h[8], const std::byte* input, size_t len) = sha_256_generic;
 
-#if defined(__x86_64__)
+#if defined(__x86_64__)  // NOLINT(readability-use-concise-preprocessor-directives)
 
 __attribute__((target("bmi,bmi2"))) static void sha_256_x86_bmi(
     uint32_t h[8], const std::byte* input, size_t len)
@@ -251,7 +251,7 @@ __attribute__((target("bmi,bmi2"))) static void sha_256_x86_bmi(
     sha_256_implementation(h, input, len);
 }
 
-[[gnu::always_inline]] static __m128i set(uint64_t a, uint64_t b) noexcept
+[[gnu::always_inline]] static inline __m128i set(uint64_t a, uint64_t b) noexcept
 {
     // NOLINTNEXTLINE(*-runtime-int)
     return _mm_set_epi64x(static_cast<long long>(a), static_cast<long long>(b));

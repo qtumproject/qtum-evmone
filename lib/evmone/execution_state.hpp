@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
+#include "state_gas.hpp"
 #include <evmc/evmc.hpp>
 #include <intx/intx.hpp>
+#include <cassert>
 #include <exception>
 #include <memory>
 #include <string>
@@ -89,7 +91,6 @@ public:
 
     uint8_t& operator[](size_t index) noexcept { return m_data[index]; }
 
-    [[nodiscard]] const uint8_t* data() const noexcept { return m_data.get(); }
     [[nodiscard]] size_t size() const noexcept { return m_size; }
 
     /// Grows the memory to the given size. The extent is filled with zeros.
@@ -123,16 +124,6 @@ public:
     void clear() noexcept { m_size = 0; }
 };
 
-/// Initcode read from Initcode Transaction (EIP-7873).
-struct TransactionInitcode
-{
-    /// Initcode bytes.
-    bytes_view code;
-    /// Result of initcode validation, if it was validated.
-    /// std::nullopt if initcode was not validated yet.
-    std::optional<bool> is_valid;
-};
-
 /// Generic execution state for generic instructions implementations.
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding)
 class ExecutionState
@@ -145,21 +136,15 @@ public:
     evmc_revision rev = {};
     bytes return_data;
 
-    /// Reference to original EVM code container.
-    /// For legacy code this is a reference to entire original code.
-    /// For EOF-formatted code this is a reference to entire container.
+    /// Reference to original EVM code.
     bytes_view original_code;
 
     evmc_status_code status = EVMC_SUCCESS;
     size_t output_offset = 0;
     size_t output_size = 0;
 
-    /// Container to be deployed returned from RETURNCODE, used only inside EOFCREATE execution.
-    std::optional<bytes> deploy_container;
-
 private:
     evmc_tx_context m_tx = {};
-    std::optional<std::unordered_map<evmc::bytes32, TransactionInitcode>> m_initcodes;
 
 public:
     /// Pointer to code analysis.
@@ -170,7 +155,8 @@ public:
         const advanced::AdvancedCodeAnalysis* advanced;
     } analysis{};
 
-    std::vector<const uint8_t*> call_stack;
+    /// The frame's state-gas counters (EIP-8037).
+    StateGas state_gas;
 
     /// Stack space allocation.
     ///
@@ -182,7 +168,11 @@ public:
     ExecutionState(const evmc_message& message, evmc_revision revision,
         const evmc_host_interface& host_interface, evmc_host_context* host_ctx,
         bytes_view _code) noexcept
-      : msg{&message}, host{host_interface, host_ctx}, rev{revision}, original_code{_code}
+      : msg{&message},
+        host{host_interface, host_ctx},
+        rev{revision},
+        original_code{_code},
+        state_gas{{.left = message.state_gas}}
     {}
 
     /// Resets the contents of the ExecutionState so that it could be reused.
@@ -191,6 +181,7 @@ public:
         bytes_view _code) noexcept
     {
         gas_refund = 0;
+        state_gas = {{.left = message.state_gas}};
         memory.clear();
         msg = &message;
         host = {host_interface, host_ctx};
@@ -200,10 +191,7 @@ public:
         status = EVMC_SUCCESS;
         output_offset = 0;
         output_size = 0;
-        deploy_container = {};
         m_tx = {};
-        m_initcodes.reset();
-        call_stack = {};
     }
 
     [[nodiscard]] bool in_static_mode() const { return (msg->flags & EVMC_STATIC) != 0; }
@@ -214,26 +202,32 @@ public:
             m_tx = host.get_tx_context();
         return m_tx;
     }
-
-    /// Get initcode by its hash from transaction initcodes.
-    ///
-    /// Returns nullptr if no such initcode was found.
-    [[nodiscard]] TransactionInitcode* get_tx_initcode_by_hash(const evmc_bytes32& hash)
-    {
-        if (!m_initcodes.has_value())
-        {
-            m_initcodes.emplace();
-            const auto& tx_context = get_tx_context();
-            for (size_t i = 0; i < tx_context.initcodes_count; ++i)
-            {
-                const auto& initcode = tx_context.initcodes[i];
-                m_initcodes->insert({initcode.hash,
-                    {.code = {initcode.code, initcode.code_size}, .is_valid = std::nullopt}});
-            }
-        }
-
-        const auto it = m_initcodes->find(hash);
-        return it != m_initcodes->end() ? &it->second : nullptr;
-    }
 };
+
+/// Builds the execution result for a finished frame from its final @p state and @p gas_left.
+///
+/// Applies the frame-exit rules shared by the baseline and advanced interpreters: an exceptional
+/// halt consumes all gas (only a success or revert keeps it), the gas refund counts only on
+/// success, and the output is the memory range recorded in the state.
+inline evmc_result make_execution_result(ExecutionState& state, int64_t gas_left) noexcept
+{
+    if (state.rev >= EVMC_AMSTERDAM && state.status != EVMC_SUCCESS)
+    {
+        // Unsuccessful frame doesn't commit any state changes, roll-back all state-gas costs.
+        gas_left += state.state_gas.spilled;
+        state.state_gas.left = state.msg->state_gas;
+        state.state_gas.spilled = 0;
+    }
+
+    // An exceptional halt consumes all gas; only a success or revert keeps gas_left.
+    if (state.status != EVMC_SUCCESS && state.status != EVMC_REVERT)
+        gas_left = 0;
+    const auto gas_refund = (state.status == EVMC_SUCCESS) ? state.gas_refund : 0;
+
+    assert(state.output_size != 0 || state.output_offset == 0);
+    return evmc::Result{state.status, gas_left, gas_refund,
+        state.output_size != 0 ? &state.memory[state.output_offset] : nullptr, state.output_size,
+        state.state_gas}
+        .release_raw();
+}
 }  // namespace evmone

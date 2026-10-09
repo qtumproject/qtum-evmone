@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "state_transition.hpp"
-#include <evmone/eof.hpp>
-#include <test/state/mpt_hash.hpp>
-#include <test/statetest/statetest.hpp>
+#include <test/state/system_contracts.hpp>
+#include <test/utils/mpt_hash.hpp>
+#include <test/utils/statetest.hpp>
+#include <test/utils/utils.hpp>
 #include <filesystem>
 #include <fstream>
 
@@ -13,7 +14,7 @@ namespace evmone::test
 {
 void state_transition::SetUp()
 {
-    pre.insert(tx.sender, {.nonce = 1, .balance = tx.gas_limit * tx.max_gas_price + tx.value + 1});
+    pre[tx.sender] = {.nonce = 1, .balance = tx.gas_limit * tx.max_gas_price + tx.value + 1};
 
     // Default expectation (coinbase is added later for valid txs only).
     expect.post[tx.sender].exists = true;
@@ -57,8 +58,11 @@ void state_transition::TearDown()
     if (trace)
         trace_capture.emplace();
 
+    // After EVMC_PRAGUE, get_blob_params will not work like that without a blob schedule.
+    // TODO: add a blob schedule to use with state_transition tests, should they be added.
     const auto res = test::transition(state, block, block_hashes, tx, rev, selected_vm,
-        block.gas_limit, static_cast<int64_t>(state::max_blob_gas_per_block(rev)));
+        block.gas_limit, block.gas_limit,
+        static_cast<int64_t>(state::max_blob_gas_per_block(get_blob_params(rev))));
     test::finalize(state, rev, block.coinbase, block_reward, block.ommers, block.withdrawals);
     const auto& post = state;
 
@@ -83,6 +87,40 @@ void state_transition::TearDown()
         {
             EXPECT_EQ(receipt.gas_used, *expect.gas_used);
         }
+        if (expect.block_gas_used.has_value())
+        {
+            EXPECT_EQ(receipt.block_gas_used, *expect.block_gas_used);
+        }
+        if (expect.logs.has_value())
+        {
+            ASSERT_EQ(receipt.logs.size(), expect.logs->size()) << "unexpected number of logs";
+            for (size_t i = 0; i < expect.logs->size(); ++i)
+            {
+                EXPECT_EQ(receipt.logs[i].addr, (*expect.logs)[i].addr) << "log " << i << " addr";
+                EXPECT_EQ(receipt.logs[i].data, (*expect.logs)[i].data) << "log " << i << " data";
+                EXPECT_EQ(receipt.logs[i].topics, (*expect.logs)[i].topics)
+                    << "log " << i << " topics";
+            }
+        }
+        if (expect.state_gas.has_value())
+        {
+            EXPECT_EQ(receipt.state_gas_used, *expect.state_gas);
+        }
+
+        const auto& diff = receipt.state_diff;
+        for (const auto& [addr, expected_acc] : expect.post)
+        {
+            if (!expected_acc.in_diff.has_value())
+                continue;
+            const auto present =
+                std::ranges::find(diff.deleted_accounts, addr) != diff.deleted_accounts.end() ||
+                std::ranges::find(diff.modified_accounts, addr, &StateDiff::Entry::addr) !=
+                    diff.modified_accounts.end();
+            EXPECT_EQ(present, *expected_acc.in_diff)
+                << addr
+                << (present ? ": unexpectedly in the state diff" : ": missing from the state diff");
+        }
+
         // Update default expectations - valid transaction means coinbase exists unless explicitly
         // requested otherwise
         if (!expect.post.contains(Coinbase))
@@ -155,5 +193,15 @@ void state_transition::export_state_test(
 {
     const auto j = to_state_test(export_test_name, block, tx, pre, rev, res, post);
     std::ofstream{export_file_path} << std::setw(2) << j;
+}
+
+Log state_transition::transfer_log(
+    const address& sender, const address& recipient, const intx::uint256& amount)
+{
+    static constexpr std::string_view EVENT = "Transfer(address,address,uint256)";
+    static const auto topic =
+        keccak256({reinterpret_cast<const uint8_t*>(EVENT.data()), EVENT.size()});
+    return {SYSTEM_ADDRESS, bytes{intx::be::store<uint256be>(amount)},
+        {topic, to_bytes32(sender), to_bytes32(recipient)}};
 }
 }  // namespace evmone::test

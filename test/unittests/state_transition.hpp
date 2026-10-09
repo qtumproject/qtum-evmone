@@ -7,7 +7,7 @@
 #include <evmone/evmone.h>
 #include <test/state/errors.hpp>
 #include <test/state/host.hpp>
-#include <test/state/test_state.hpp>
+#include <test/utils/test_state.hpp>
 
 namespace evmone::test
 {
@@ -32,6 +32,11 @@ protected:
     /// The default destination address of the test transaction.
     static constexpr auto To = 0xc0de_address;
 
+    /// A second signing account, for tests needing a signature that is not the Sender's
+    /// (e.g. an EIP-7702 authority).
+    /// Private key: 0xa5.
+    static constexpr auto AUTHORITY = 0x1d694d5ad94f32132ff5c14c901d3ddbee90a550_address;
+
     static constexpr auto Coinbase = 0xc014bace_address;
 
     static inline evmc::VM vm{evmc_create_evmone()};
@@ -40,6 +45,10 @@ protected:
     struct ExpectedAccount
     {
         bool exists = true;
+
+        /// Whether the account is expected to be mentioned in the transaction's state diff.
+        std::optional<bool> in_diff;
+
         std::optional<uint64_t> nonce;
         std::optional<intx::uint256> balance;
         std::optional<bytes> code;
@@ -57,6 +66,16 @@ protected:
 
         /// The expected amount of gas used by the transaction.
         std::optional<int64_t> gas_used;
+
+        /// The expected amount of gas counted against the block gas limit (EIP-7778).
+        std::optional<int64_t> block_gas_used;
+
+        /// The expected logs emitted by the transaction. When set, the receipt's logs must match
+        /// exactly: count, address, data, topics, and order.
+        std::optional<std::vector<Log>> logs;
+
+        /// The expected state-gas component of the receipt (EIP-8037).
+        std::optional<int64_t> state_gas;
 
         /// The expected post-execution state.
         std::unordered_map<address, ExpectedAccount> post;
@@ -85,6 +104,7 @@ protected:
         .max_gas_price = block.base_fee + 1,
         .max_priority_gas_price = block.base_fee + 1,
         .sender = Sender,
+        .chain_id = 1,
         .nonce = 1,
     };
     TestState pre;
@@ -94,6 +114,11 @@ protected:
 
     /// The test runner.
     void TearDown() override;
+
+    /// Build the expected EIP-7708 Transfer log: {SYSTEM_ADDRESS, amount (32-byte big-endian),
+    /// topics = [Transfer event topic, sender, recipient]}.
+    static Log transfer_log(
+        const address& sender, const address& recipient, const intx::uint256& amount);
 
     /// Exports the test in the JSON State Test format to ExportableFixture::export_out.
     void export_state_test(

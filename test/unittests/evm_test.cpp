@@ -91,6 +91,20 @@ TEST_P(evm, dup_stack_overflow)
     EXPECT_STATUS(EVMC_STACK_OVERFLOW);
 }
 
+TEST_P(evm, push1_stack_overflow)
+{
+    for (const auto r :
+        {EVMC_FRONTIER, EVMC_BYZANTIUM, EVMC_OSAKA, EVMC_AMSTERDAM, EVMC_MAX_REVISION})
+    {
+        rev = r;
+        // PUSH1 has an immediate byte, so it must not bypass the stack overflow check.
+        execute(1024 * push(1));
+        EXPECT_STATUS(EVMC_SUCCESS);
+        execute(1025 * push(1));
+        EXPECT_STATUS(EVMC_STACK_OVERFLOW);
+    }
+}
+
 TEST_P(evm, dup_stack_underflow)
 {
     for (int i = 0; i < 16; ++i)
@@ -338,7 +352,7 @@ TEST_P(evm, signextend)
 
 TEST_P(evm, signextend_31)
 {
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
 
     execute(bytecode{"61010160000360081c601e0b60005260206000f3"});
     EXPECT_GAS_USED(EVMC_SUCCESS, 38);
@@ -567,7 +581,7 @@ TEST_P(evm, return_empty_buffer_at_high_offset)
 TEST_P(evm, shl)
 {
     const bytecode code = "600560011b6000526001601ff3";
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     execute(code);
     EXPECT_EQ(gas_used, 24);
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
@@ -578,7 +592,7 @@ TEST_P(evm, shl)
 TEST_P(evm, shr)
 {
     const bytecode code = "600560011c6000526001601ff3";
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     execute(code);
     EXPECT_EQ(gas_used, 24);
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
@@ -589,7 +603,7 @@ TEST_P(evm, shr)
 TEST_P(evm, sar)
 {
     const bytecode code = "600160000360021d60005260016000f3";
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     execute(code);
     EXPECT_EQ(gas_used, 30);
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
@@ -600,7 +614,7 @@ TEST_P(evm, sar)
 TEST_P(evm, sar_01)
 {
     const bytecode code = "600060011d60005260016000f3";
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     execute(code);
     EXPECT_EQ(gas_used, 24);
     EXPECT_EQ(result.status_code, EVMC_SUCCESS);
@@ -610,7 +624,7 @@ TEST_P(evm, sar_01)
 
 TEST_P(evm, shift_overflow)
 {
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     for (auto op : {OP_SHL, OP_SHR, OP_SAR})
     {
         execute(not_(0) + 0x100 + op + ret_top());
@@ -680,7 +694,7 @@ TEST_P(evm, staticmode)
 {
     auto code_prefix = 1 + 6 * OP_DUP1;
 
-    rev = EVMC_CONSTANTINOPLE;
+    rev = EVMC_PETERSBURG;
     for (auto op : {OP_SSTORE, OP_LOG0, OP_LOG1, OP_LOG2, OP_LOG3, OP_LOG4, OP_CALL, OP_CREATE,
              OP_CREATE2, OP_SELFDESTRUCT})
     {
