@@ -12,8 +12,8 @@ namespace evmone::state
 {
 bool Host::account_exists(const address& addr) const noexcept
 {
-    const auto* const acc = m_state.find(addr);
-    return acc != nullptr && (m_rev < EVMC_SPURIOUS_DRAGON || !acc->is_empty());
+    const auto& acc = m_state.get(addr);
+    return !acc.nonexistent && (m_rev < EVMC_SPURIOUS_DRAGON || !acc.is_empty());
 }
 
 bytes32 Host::get_storage(const address& addr, const bytes32& key) const noexcept
@@ -27,8 +27,10 @@ evmc_storage_status Host::set_storage(
     // Follow EVMC documentation https://evmc.ethereum.org/storagestatus.html#autotoc_md3
     // and EIP-2200 specification https://eips.ethereum.org/EIPS/eip-2200.
 
+    assert(!m_state.get(addr).nonexistent);
     auto& storage_slot = m_state.get_storage(addr, key);
-    const auto& [current, original, _] = storage_slot;
+    const auto& current = storage_slot.current;
+    const auto& original = storage_slot.original;
 
     const auto dirty = original != current;
     const auto restored = original == value;
@@ -70,14 +72,12 @@ evmc_storage_status Host::set_storage(
 
 uint256be Host::get_balance(const address& addr) const noexcept
 {
-    const auto* const acc = m_state.find(addr);
-    return (acc != nullptr) ? intx::be::store<uint256be>(acc->balance) : uint256be{};
+    return intx::be::store<uint256be>(m_state.get(addr).balance);
 }
 
 uint64_t Host::get_nonce(const address& addr) const noexcept
 {
-    const auto* const acc = m_state.find(addr);
-    return (acc != nullptr) ? acc->nonce : 0;
+    return m_state.get(addr).nonce;
 }
 
 namespace
@@ -112,11 +112,11 @@ size_t Host::get_code_size(const address& addr) const noexcept
 
 bytes32 Host::get_code_hash(const address& addr) const noexcept
 {
-    const auto* const acc = m_state.find(addr);
-    if (acc == nullptr || acc->is_empty())
+    const auto& acc = m_state.get(addr);
+    if (acc.is_empty())
         return {};
 
-    return acc->code_hash;
+    return acc.code_hash;
 }
 
 size_t Host::copy_code(const address& addr, size_t code_offset, uint8_t* buffer_data,
@@ -131,14 +131,13 @@ size_t Host::copy_code(const address& addr, size_t code_offset, uint8_t* buffer_
 
 bool Host::selfdestruct(const address& addr, const address& beneficiary) noexcept
 {
-    if (m_state.find(beneficiary) == nullptr)
-        m_state.journal_new_account(beneficiary);
     auto& acc = m_state.get(addr);
+    assert(!acc.nonexistent);
     const auto balance = acc.balance;
     auto& beneficiary_acc = m_state.touch(beneficiary);
 
-    m_state.journal_balance_change(beneficiary, beneficiary_acc.balance);
-    m_state.journal_balance_change(addr, balance);
+    m_state.journal_balance_change(beneficiary_acc);
+    m_state.journal_balance_change(acc);
 
     if (m_rev >= EVMC_CANCUN && !acc.just_created)
     {
@@ -170,7 +169,7 @@ bool Host::selfdestruct(const address& addr, const address& beneficiary) noexcep
     // Mark the destruction if not done already.
     if (!acc.destructed)
     {
-        m_state.journal_account_flags(addr, acc);
+        m_state.journal_account_flags(acc);
         acc.destructed = true;
         return true;
     }
@@ -182,36 +181,31 @@ evmc::Result Host::create(const evmc_message& msg) noexcept
     assert(msg.kind == EVMC_CREATE || msg.kind == EVMC_CREATE2);
     assert(msg.recipient != address{});  // Must be computed already.
 
-    // TODO: find()+insert() probes m_modified twice for a new recipient.
-    auto* new_acc = m_state.find(msg.recipient);
-    if (new_acc == nullptr)
-    {
-        new_acc = &m_state.insert(msg.recipient);
-        m_state.journal_new_account(msg.recipient);
-    }
-    else
+    auto [new_acc, created] = m_state.get_or_create(msg.recipient);
+    if (!created)
     {
         // TODO: Add EVMC errors for creation failures.
-        if (is_create_collision(*new_acc))
+        if (is_create_collision(new_acc))
             return evmc::Result{EVMC_FAILURE, {.left = msg.state_gas}};
-        m_state.journal_create(msg.recipient);
+        m_state.journal_create(new_acc);
     }
 
-    assert(new_acc != nullptr);
-    assert(new_acc->nonce == 0);
+    assert(new_acc.nonce == 0);
+    assert(!new_acc.just_created && !new_acc.code_changed);  // The create rollback clears them.
 
     if (m_rev >= EVMC_SPURIOUS_DRAGON)
-        new_acc->nonce = 1;  // No need to journal: create revert will 0 the nonce.
+        new_acc.nonce = 1;  // No need to journal: create revert will 0 the nonce.
 
-    new_acc->just_created = true;
+    new_acc.just_created = true;
 
     auto& sender_acc = m_state.get(msg.sender);  // TODO: Duplicated account lookup.
+    assert(!sender_acc.nonexistent);
     const auto value = intx::be::load<intx::uint256>(msg.value);
     assert(sender_acc.balance >= value && "EVM must guarantee balance");
-    m_state.journal_balance_change(msg.sender, sender_acc.balance);
-    m_state.journal_balance_change(msg.recipient, new_acc->balance);
+    m_state.journal_balance_change(sender_acc);
+    m_state.journal_balance_change(new_acc);
     sender_acc.balance -= value;
-    new_acc->balance += value;  // The new account may be prefunded.
+    new_acc.balance += value;  // The new account may be prefunded.
 
     if (m_rev >= EVMC_AMSTERDAM)
         emit_transfer_log(m_logs, msg.sender, msg.recipient, value);
@@ -262,9 +256,9 @@ evmc::Result Host::create(const evmc_message& msg) noexcept
 
     if (!code.empty())
     {
-        new_acc->code_hash = keccak256(code);
-        new_acc->code = code;
-        new_acc->code_changed = true;
+        new_acc.code_hash = keccak256(code);
+        new_acc.code = code;
+        new_acc.code_changed = true;
     }
 
     return evmc::Result{result.status_code, gas_left, result.gas_refund, state_gas};
@@ -277,11 +271,6 @@ evmc::Result Host::execute_message(const evmc_message& msg) noexcept
 
     if (msg.kind == EVMC_CALL)
     {
-        auto* recipient_acc = m_state.find(msg.recipient);
-        if (recipient_acc == nullptr)
-            m_state.journal_new_account(msg.recipient);
-        // TODO: Both branches will insert new account so better to do it in common path.
-
         if (evmc::is_zero(msg.value))
         {
             m_state.touch(msg.recipient);
@@ -291,18 +280,18 @@ evmc::Result Host::execute_message(const evmc_message& msg) noexcept
             // We skip touching if we send value, because account cannot end up empty.
             // It will either have value, or code that transfers this value out, or will be
             // selfdestructed anyway.
-            if (recipient_acc == nullptr)
-                recipient_acc = &m_state.insert(msg.recipient);
+            auto& recipient_acc = m_state.get_or_create(msg.recipient).first;
 
             // Transfer value: sender → recipient.
             // The sender's balance is already checked therefore the sender account must exist.
             const auto value = intx::be::load<intx::uint256>(msg.value);
             auto& sender_acc = m_state.get(msg.sender);
+            assert(!sender_acc.nonexistent);
             assert(sender_acc.balance >= value);
-            m_state.journal_balance_change(msg.sender, sender_acc.balance);
-            m_state.journal_balance_change(msg.recipient, recipient_acc->balance);
+            m_state.journal_balance_change(sender_acc);
+            m_state.journal_balance_change(recipient_acc);
             sender_acc.balance -= value;
-            recipient_acc->balance += value;
+            recipient_acc.balance += value;
 
             if (m_rev >= EVMC_AMSTERDAM)
                 emit_transfer_log(m_logs, msg.sender, msg.recipient, value);
@@ -327,48 +316,27 @@ evmc::Result Host::call(const evmc_message& msg) noexcept
     {
         // Bump the creator's nonce (already done for depth 0). Not reverted if creation fails.
         auto& sender_acc = m_state.get(msg.sender);
+        assert(!sender_acc.nonexistent);
         assert(sender_acc.nonce != MAX_NONCE);
-        m_state.journal_bump_nonce(msg.sender);
+        m_state.journal_bump_nonce(sender_acc);
         ++sender_acc.nonce;
-    }
-
-    auto exec_msg = msg;
-    StateGas state_gas{{.left = msg.state_gas}};  // State-gas for top-level account creation cost.
-    if (msg.depth == 0 && m_rev >= EVMC_AMSTERDAM &&
-        (msg.kind == EVMC_CREATE || !evmc::is_zero(msg.value)) && !account_exists(msg.recipient))
-    {
-        if (!state_gas.charge(exec_msg.gas, NEW_ACCOUNT_STATE_GAS))
-            return evmc::Result{EVMC_OUT_OF_GAS, {.left = msg.state_gas}};
-        exec_msg.state_gas = state_gas.left;
     }
 
     const auto logs_checkpoint = m_logs.size();
     const auto state_checkpoint = m_state.checkpoint();
 
-    auto result = execute_message(exec_msg);
+    auto result = execute_message(msg);
 
-    if (result.status_code == EVMC_SUCCESS)
+    if (result.status_code != EVMC_SUCCESS)
     {
-        result.state_gas.spilled += state_gas.spilled;  // Commit the top-level new account cost.
-    }
-    else
-    {
-        // Rollback state-gas costs.
-        assert(result.state_gas.left == exec_msg.state_gas);
+        assert(result.state_gas.left == msg.state_gas);
         assert(result.state_gas.spilled == 0);
-        if (result.status_code == EVMC_REVERT)
-            result.gas_left += state_gas.spilled;
-        result.state_gas.left = msg.state_gas;
 
         // The 0x03 (RIPEMD-160) touch quirk: a touch on this address is
         // never reverted. It only matters when the account is empty, so gate it by rev range.
         static constexpr auto ADDR_03 = 0x03_address;
-        bool is_03_touched = false;
-        if (m_rev < EVMC_PARIS && m_rev >= EVMC_SPURIOUS_DRAGON) [[unlikely]]
-        {
-            const auto* const acc_03 = m_state.find(ADDR_03);
-            is_03_touched = acc_03 != nullptr && acc_03->erase_if_empty;
-        }
+        const bool is_03_touched = m_rev < EVMC_PARIS && m_rev >= EVMC_SPURIOUS_DRAGON &&
+                                   m_state.get(ADDR_03).erase_if_empty;
 
         // Revert.
         m_state.rollback(state_checkpoint);
@@ -390,19 +358,19 @@ evmc_tx_context Host::get_tx_context() const noexcept
     const auto effective_gas_price = m_block.base_fee + priority_gas_price;
 
     return evmc_tx_context{
-        intx::be::store<uint256be>(effective_gas_price),  // By EIP-1559.
-        m_tx.sender,
-        m_block.coinbase,
-        m_block.number,
-        m_block.timestamp,
-        m_block.gas_limit,
-        m_block.prev_randao,
-        uint256be{m_block.chain_id},
-        uint256be{m_block.base_fee},
-        intx::be::store<uint256be>(m_block.blob_base_fee.value_or(0)),
-        m_tx.blob_hashes.data(),
-        m_tx.blob_hashes.size(),
-        m_block.slot_number.value_or(0),
+        .tx_gas_price = intx::be::store<uint256be>(effective_gas_price),  // By EIP-1559.
+        .tx_origin = m_tx.sender,
+        .block_coinbase = m_block.coinbase,
+        .block_number = m_block.number,
+        .block_timestamp = m_block.timestamp,
+        .block_gas_limit = m_block.gas_limit,
+        .block_prev_randao = m_block.prev_randao,
+        .chain_id = uint256be{m_block.chain_id},
+        .block_base_fee = uint256be{m_block.base_fee},
+        .blob_base_fee = intx::be::store<uint256be>(m_block.blob_base_fee.value_or(0)),
+        .blob_hashes = m_tx.blob_hashes.data(),
+        .blob_hashes_count = m_tx.blob_hashes.size(),
+        .block_slot_number = m_block.slot_number.value_or(0),
     };
 }
 
@@ -422,31 +390,21 @@ evmc_access_status Host::access_account(const address& addr) noexcept
     if (m_rev < EVMC_BERLIN)
         return EVMC_ACCESS_COLD;  // Ignore before Berlin.
 
-    auto* acc = m_state.find(addr);
-
-    if (acc != nullptr && acc->access_status == EVMC_ACCESS_WARM)
-        return EVMC_ACCESS_WARM;
-
     if (is_precompile(m_rev, addr))  // Precompiles are always warm. Don't insert to state.
         return EVMC_ACCESS_WARM;
 
-    // TODO: On a modified-set miss the account is looked up twice. This can be improved with
-    //   a try_emplace-like API, but the miss happens only in ~39% of the calls on Mainnet.
-    if (acc == nullptr)
-    {
-        acc = &m_state.insert(addr, {.erase_if_empty = true});
-        m_state.journal_new_account(addr);
-    }
-    else
-        m_state.journal_account_flags(addr, *acc);
+    auto& acc = m_state.access(addr);
+    if (acc.access_status == EVMC_ACCESS_WARM)
+        return EVMC_ACCESS_WARM;
 
-    acc->access_status = EVMC_ACCESS_WARM;
+    m_state.journal_account_flags(acc);
+    acc.access_status = EVMC_ACCESS_WARM;
     return EVMC_ACCESS_COLD;
 }
 
 evmc_access_status Host::access_storage(const address& addr, const bytes32& key) noexcept
 {
-    auto& storage_slot = m_state.get_storage(addr, key);
+    auto& storage_slot = m_state.access_storage(addr, key);
     if (storage_slot.access_status == EVMC_ACCESS_WARM)
         return EVMC_ACCESS_WARM;  // Nothing changes, skip journaling.
     m_state.journal_storage_change(storage_slot);
@@ -465,7 +423,9 @@ evmc::bytes32 Host::get_transient_storage(const address& addr, const bytes32& ke
 void Host::set_transient_storage(
     const address& addr, const bytes32& key, const bytes32& value) noexcept
 {
-    auto& slot = m_state.get(addr).transient_storage[key];
+    auto& acc = m_state.get(addr);
+    assert(!acc.nonexistent);
+    auto& slot = acc.transient_storage[key];
     m_state.journal_transient_storage_change(slot);
     slot = value;
 }

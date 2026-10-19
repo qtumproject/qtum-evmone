@@ -65,6 +65,16 @@ constexpr std::array REQUESTS_SYSTEM_CONTRACTS{
         CONSOLIDATION_REQUEST_ADDRESS,
         Requests::Type::consolidation,
     },
+    RequestsSystemContract{
+        EVMC_AMSTERDAM,
+        BUILDER_DEPOSIT_CONTRACT_ADDRESS,
+        Requests::Type::builder_deposit,
+    },
+    RequestsSystemContract{
+        EVMC_AMSTERDAM,
+        BUILDER_EXIT_CONTRACT_ADDRESS,
+        Requests::Type::builder_exit,
+    },
 };
 
 constexpr auto by_rev = [](const auto& a, const auto& b) noexcept { return a.since < b.since; };
@@ -105,14 +115,17 @@ StateDiff system_call_block_start(const StateView& state_view, const BlockInfo& 
 
         // Skip the call if the target account doesn't exist. This is by EIP-4788 spec.
         // > if no code exists at [address], the call must fail silently.
-        const auto code = state_view.get_account_code(addr);
+        const auto code = state.get_code(addr);
         if (code.empty())
             continue;
 
+        // The call is unchecked: a failure only reverts its state changes for testing.
         const auto input32 = get_input(block, block_hashes);
+        const auto checkpoint = state.checkpoint();
         const auto res =
             execute_system_call(state, block, block_hashes, rev, vm, addr, code, input32);
-        assert(res.status_code == EVMC_SUCCESS);
+        if (res.status_code != EVMC_SUCCESS) [[unlikely]]
+            state.rollback(checkpoint);
     }
     // TODO: Should we return empty diff if no system contracts?
     return state.build_diff(rev);
@@ -129,7 +142,7 @@ std::variant<RequestsResult, std::error_code> system_call_block_end(const StateV
             break;  // Because entries are ordered, there are no other contracts for this revision.
 
         // Fail if the target account doesn't exist. This is by EIP-7002 and EIP-7251 spec.
-        const auto code = state_view.get_account_code(addr);
+        const auto code = state.get_code(addr);
         if (code.empty())
             return make_error_code(SYSTEM_CONTRACT_EMPTY);
 
